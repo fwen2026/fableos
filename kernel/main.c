@@ -20,11 +20,13 @@ __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
 
+/** Halt and Catch Fire */
 void hcf(void){
     for(;;){
         __asm__ volatile ("hlt");
     }
 }
+
 
 void kmain(void){
     console_print("Hello from FableOS! \n");
