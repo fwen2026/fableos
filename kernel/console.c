@@ -1,5 +1,5 @@
-#include <kernel/console.h>
-#include <io/io.h>
+#include <include/console.h>
+#include <include/io.h>
 
 /** Prints to the console character by character*/
 void console_print(const char *current_char) {
