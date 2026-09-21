@@ -1,3 +1,5 @@
+#include <kernel/console.h>
+
 /** Prints to the console */
 void console_print(const char *current_char) {
     while (*current_char != '\0') {
