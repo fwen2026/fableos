@@ -1,3 +1,5 @@
+#include <io/io.h>
+
 /** This reads a byte from the specified I/O port. */
 unsigned char inb(unsigned int port) {
     unsigned char ret;
