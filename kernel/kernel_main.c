@@ -1,4 +1,4 @@
-#include <kernel/console.h>
+#include <include/console.h>
 
 void kernel_main(void){
     console_print("Hello from FableOS! \n");
