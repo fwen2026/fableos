@@ -1,7 +1,7 @@
 #include <io/io.h>
 
 /** This reads a byte from the specified I/O port. */
-unsigned char inb(unsigned int port) {
+unsigned char inb(unsigned short port) {
     unsigned char ret;
     __asm__ volatile (
         "inb %1, %0"
@@ -13,7 +13,7 @@ unsigned char inb(unsigned int port) {
 
 
 /** This just writes a char to port for now. */
-void outb(unsigned int port, unsigned char value) {
+void outb(unsigned short port, unsigned char value) {
     __asm__ volatile (
         "outb %0, %1" 
         : 

@@ -1,6 +1,6 @@
 #include <kernel/console.h>
 
-void main(void){
+void kernel_main(void){
     console_print("Hello from FableOS! \n");
 
     for(;;){
