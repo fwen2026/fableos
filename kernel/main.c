@@ -3,10 +3,10 @@
 void kernel_main(void){
     console_print("Hello from FableOS! \n");
 
-    halt();
+    hcf();
 }
 
-void halt(void){
+void hcf(void){
     for(;;){
         __asm__ volatile ("hlt");
     }
