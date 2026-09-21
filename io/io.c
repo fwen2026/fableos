@@ -11,6 +11,7 @@ unsigned char inb(unsigned int port) {
     return ret;
 }
 
+
 /** This just writes a char to port for now. */
 void outb(unsigned int port, unsigned char value) {
     __asm__ volatile (

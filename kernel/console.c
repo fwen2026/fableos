@@ -1,6 +1,6 @@
 #include <kernel/console.h>
 
-/** Prints to the console */
+/** Prints to the console character by character*/
 void console_print(const char *current_char) {
     while (*current_char != '\0') {
         putchar(*current_char);
@@ -9,6 +9,7 @@ void console_print(const char *current_char) {
 }
 
 
+/** Prints a single char in the console */
 void putchar(char c) {
     if (c == '\n') {
         serial_putchar('\r');

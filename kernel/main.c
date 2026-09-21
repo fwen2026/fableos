@@ -1,6 +1,7 @@
 void main(void){
+    console_print("Hello from FableOS! \n");
+    
     for(;;){
-        console_print("Hello from FableOS! \n");
         __asm__ volatile ("hlt");
     }
 }
