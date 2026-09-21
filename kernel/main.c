@@ -1,4 +1,5 @@
-#include <include/console.h>
+#include <kernel/console.h>
+#include <limine.h>
 
 void hcf(void){
     for(;;){
