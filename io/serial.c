@@ -1,3 +1,4 @@
+#include <io/serial.h>
 #include <io/io.h>
 
 /** Sends a character to the serial port */
