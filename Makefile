@@ -11,7 +11,10 @@ ISO_ROOT := $(BUILD)/iso_root
 # Point this at Limine's built binaries (the source checkout alone is not enough).
 LIMINE_DIR ?= limine
 LIMINE := $(LIMINE_DIR)/limine
-LIMINE_FILES := $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin
+LIMINE_FILES := $(LIMINE_DIR)/limine-bios.sys \
+                $(LIMINE_DIR)/limine-bios-cd.bin \
+                $(LIMINE_DIR)/limine-uefi-cd.bin
+LIMINE_EFI := $(LIMINE_DIR)/BOOTX64.EFI
 
 CPPFLAGS := -Iinclude
 CFLAGS := -std=c17 -m64 -mcmodel=kernel -mno-red-zone -mgeneral-regs-only \
@@ -37,18 +40,22 @@ $(BUILD)/%.o: %.c Makefile
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-# Boot through Limine's BIOS CD image using QEMU's default PC firmware.
-$(ISO): $(KERNEL) limine.conf $(LIMINE_FILES) $(LIMINE) Makefile
+# Build Limine's documented BIOS/UEFI hybrid ISO for x86-64.
+$(ISO): $(KERNEL) limine.conf $(LIMINE_FILES) $(LIMINE_EFI) $(LIMINE) Makefile
 	@command -v $(XORRISO) >/dev/null || { echo "Missing xorriso; install it to build the boot ISO." >&2; exit 1; }
-	@mkdir -p $(ISO_ROOT)/boot/limine
+	@mkdir -p $(ISO_ROOT)/boot/limine $(ISO_ROOT)/EFI/BOOT
 	cp $(KERNEL) $(ISO_ROOT)/boot/fableos.elf
 	cp limine.conf $(LIMINE_FILES) $(ISO_ROOT)/boot/limine/
+	cp $(LIMINE_EFI) $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 	$(XORRISO) -as mkisofs -R -r -J \
 		-b boot/limine/limine-bios-cd.bin -no-emul-boot \
-		-boot-load-size 4 -boot-info-table $(ISO_ROOT) -o $@
+		-boot-load-size 4 -boot-info-table -hfsplus \
+		-apm-block-size 2048 --efi-boot boot/limine/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		$(ISO_ROOT) -o $@
 	$(LIMINE) bios-install $@
 
-$(LIMINE_FILES) $(LIMINE):
+$(LIMINE_FILES) $(LIMINE_EFI) $(LIMINE):
 	@echo "Missing $@; build/install Limine binaries and set LIMINE_DIR to their directory." >&2
 	@exit 1
 
