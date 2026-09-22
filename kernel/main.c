@@ -30,8 +30,10 @@ void hcf(void){
 
 
 void kmain(void){
-    serial_init();
+    if(LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)){
+        serial_init();
+        console_print("Hello from FableOS! \n");
+    }
 
-    console_print("Hello from FableOS! \n");
     hcf();
 }
