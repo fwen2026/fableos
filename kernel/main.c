@@ -1,4 +1,5 @@
 #include <kernel/console.h>
+#include <io/serial.h>
 #include <limine.h>
 
 // Limine setup
@@ -29,7 +30,8 @@ void hcf(void){
 
 
 void kmain(void){
-    console_print("Hello from FableOS! \n");
+    serial_init();
 
+    console_print("Hello from FableOS! \n");
     hcf();
 }
