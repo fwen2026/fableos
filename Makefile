@@ -27,7 +27,7 @@ SRCS := $(shell find kernel io -type f -name '*.c' | sort)
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
-.PHONY: all run clean
+.PHONY: all run test clean
 .DELETE_ON_ERROR:
 
 all: $(KERNEL)
@@ -61,6 +61,22 @@ $(LIMINE_FILES) $(LIMINE_EFI) $(LIMINE):
 
 run: $(ISO)
 	$(QEMU) -cdrom $(ISO) -boot d -serial stdio -display none
+
+# Host-side unit tests. The kernel's mem* functions are renamed to fable_*
+# so they don't collide with the host libc's.
+HOSTCC ?= cc
+TEST_BUILD := $(BUILD)/test
+TEST_RENAME := -Dmemcpy=fable_memcpy -Dmemset=fable_memset \
+               -Dmemmove=fable_memmove -Dmemcmp=fable_memcmp
+TEST_CFLAGS := -std=c17 -fno-builtin -Wall -Wextra -Werror -O1 -g \
+               -fsanitize=address,undefined -fno-omit-frame-pointer
+
+$(TEST_BUILD)/test_memory: test/test_memory.c kernel/memory.c include/kernel/memory.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c kernel/memory.c
+
+test: $(TEST_BUILD)/test_memory
+	./$(TEST_BUILD)/test_memory
 
 clean:
 	rm -rf $(BUILD)
