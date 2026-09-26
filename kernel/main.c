@@ -38,13 +38,13 @@ void hcf(void){
 /** Memory map logging */
 void log_memory_map(void) {
     if (memmap_request.response != NULL) {
-        console_print("Memory map request received.\n");
+        console_printf("Memory map request received.\n");
 
         struct limine_memmap_response *response = memmap_request.response;
 
-        for(int i = 0; i < response->entry_count; i++) {
+        for(uint64_t i = 0; i < response->entry_count; i++) {
             struct limine_memmap_entry *entry = response->entries[i];
-            console_print("Memory map entry %d: base = 0x%lx, length = 0x%lx\n",
+            console_printf("Memory map entry %d: base = 0x%lx, length = 0x%lx\n",
                            i, entry->base, entry->length);
         }
     }
@@ -56,7 +56,7 @@ void kmain(void){
         serial_init();
         log_memory_map();
 
-        console_print("Hello from FableOS! \n");
+        console_printf("Hello from FableOS! \n");
     }
 
     hcf();

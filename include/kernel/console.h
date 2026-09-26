@@ -1,7 +1,6 @@
 #ifndef CONSOLE_H
 #define CONSOLE_H
 
-void console_print(const char *str);
-void putchar(char c);
+void console_printf(const char *str, ...);
 
 #endif
