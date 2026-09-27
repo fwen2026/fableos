@@ -75,8 +75,31 @@ $(TEST_BUILD)/test_memory: test/test_memory.c kernel/memory.c include/kernel/mem
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c kernel/memory.c
 
-test: $(TEST_BUILD)/test_memory
+# The kernel's putchar is renamed to fable_putchar so it doesn't collide
+# with the host libc's. Kernel sources are compiled on their own with the
+# rename; the test files are compiled without it so they can use <stdio.h>.
+TEST_PUTCHAR_RENAME := -Dputchar=fable_putchar
+
+$(TEST_BUILD)/console.o: kernel/console.c include/kernel/console.h include/io/serial.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
+
+$(TEST_BUILD)/serial.o: io/serial.c include/io/serial.h include/io/io.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
+
+$(TEST_BUILD)/test_console: test/test_console.c $(TEST_BUILD)/console.o Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console.c $(TEST_BUILD)/console.o
+
+$(TEST_BUILD)/test_console_serial: test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial
 	./$(TEST_BUILD)/test_memory
+	./$(TEST_BUILD)/test_console
+	./$(TEST_BUILD)/test_console_serial
 
 clean:
 	rm -rf $(BUILD)
