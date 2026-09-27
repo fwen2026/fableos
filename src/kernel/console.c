@@ -142,3 +142,21 @@ void console_printf(const char *str, ...) {
     }
     va_end(args);
 }
+
+
+// --- LOGGING FUNCTIONS ---
+void log_info(const char *message) {
+    console_printf("[INFO] %s\n", message);
+}
+
+void log_warning(const char *message) {
+    console_printf("[WARNING] %s\n", message);
+}
+
+void log_error(const char *message) {
+    console_printf("[ERROR] %s\n", message);
+}
+
+void log_fatal(const char *message) {
+    console_printf("[FATAL] %s\n", message);
+}
