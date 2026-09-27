@@ -66,6 +66,7 @@ void log_memory_map(void) {
 void kmain(void){
     if(LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)){
         serial_init();
+        log_info("Serial initialized.");
         log_memory_map();
 
         console_printf("Hello from FableOS! \n");
