@@ -23,7 +23,7 @@ CFLAGS := -std=c17 -m64 -mcmodel=kernel -mno-red-zone -mgeneral-regs-only \
           -Wall -Wextra -Werror -O2 -g
 LDFLAGS := -m elf_x86_64 -T linker.ld -nostdlib -z max-page-size=0x1000
 
-SRCS := $(shell find kernel io -type f -name '*.c' | sort)
+SRCS := $(shell find src -type f -name '*.c' | sort)
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -71,20 +71,20 @@ TEST_RENAME := -Dmemcpy=fable_memcpy -Dmemset=fable_memset \
 TEST_CFLAGS := -std=c17 -fno-builtin -Wall -Wextra -Werror -O1 -g \
                -fsanitize=address,undefined -fno-omit-frame-pointer
 
-$(TEST_BUILD)/test_memory: test/test_memory.c kernel/memory.c include/kernel/memory.h Makefile
+$(TEST_BUILD)/test_memory: test/test_memory.c src/kernel/memory.c include/kernel/memory.h Makefile
 	@mkdir -p $(dir $@)
-	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c kernel/memory.c
+	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c src/kernel/memory.c
 
 # The kernel's putchar is renamed to fable_putchar so it doesn't collide
 # with the host libc's. Kernel sources are compiled on their own with the
 # rename; the test files are compiled without it so they can use <stdio.h>.
 TEST_PUTCHAR_RENAME := -Dputchar=fable_putchar
 
-$(TEST_BUILD)/console.o: kernel/console.c include/kernel/console.h include/io/serial.h Makefile
+$(TEST_BUILD)/console.o: src/kernel/console.c include/kernel/console.h include/io/serial.h Makefile
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
 
-$(TEST_BUILD)/serial.o: io/serial.c include/io/serial.h include/io/io.h Makefile
+$(TEST_BUILD)/serial.o: src/io/serial.c include/io/serial.h include/io/io.h Makefile
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
 

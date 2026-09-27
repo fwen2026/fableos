@@ -26,6 +26,18 @@ static volatile uint64_t limine_requests_start_marker[] = LIMINE_REQUESTS_START_
 __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
+static const char *memory_map_entry_types[] = {
+    [0] = "Available",
+    [1] = "Reserved",
+    [2] = "ACPI Reclaimable",
+    [3] = "ACPI NVS",
+    [4] = "Bad RAM",
+    [5] = "Bootloader Reclaimable",
+    [6] = "Executable and Modules",
+    [7] = "Framebuffer",
+    [8] = "Reserved Mapped"
+};
+
 
 /** Halt and Catch Fire */
 void hcf(void){
@@ -44,8 +56,8 @@ void log_memory_map(void) {
 
         for(uint64_t i = 0; i < response->entry_count; i++) {
             struct limine_memmap_entry *entry = response->entries[i];
-            console_printf("Memory map entry %d: base = 0x%lx, length = 0x%lx\n",
-                           i, entry->base, entry->length);
+            console_printf("Memory map entry %d: base = 0x%lx, length = 0x%lx, type = %s\n",
+                           i, entry->base, entry->length, memory_map_entry_types[entry->type]);
         }
     }
 }
