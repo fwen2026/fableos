@@ -1,20 +1,83 @@
 #include <memory/pmm.h>
+#include "limine.h"
 #include <stddef.h>
 #include <util/math.h>
 
-#define MAX_ORDER 10 // from min size for a page up to 2 MiB
+#define MAX_ORDER 9 // from min size for a page up to 2 MiB
 #define PAGE_SIZE 0x1000 // 4 KiB
+
+static uintptr_t hhdm_offset;
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_hhdm_request request = {
+    .id = LIMINE_HHDM_REQUEST_ID,
+    .revision = 0
+};
+
+void get_hhdm_offset(void) {
+    if(request.response == NULL) return;
+    hhdm_offset = request.response->offset;
+}
 
 typedef struct {
     paddr_t addr;
 } pmm_block_t; // represents a block of physical memory
 
 typedef struct memory_node {
-    pmm_block_t block;
     struct memory_node *next;
-} memory_node_t; // represents a linked list of memory blocks
+    struct memory_node *prev;
+} memory_node_t; // represents a doubly linked list of memory blocks. each node is stored at its representative block's address
 
-static memory_node_t *free_list[MAX_ORDER]; // 10 linked lists, one for each order
+static memory_node_t *free_list[MAX_ORDER + 1]; // 10 linked lists, one for each order
+
+
+/** Adds a new node to the front of the list */
+static void list_add(memory_node_t **head, memory_node_t *new_node) {
+    if (!head || !new_node || *head == new_node) return; // adding the head again would make it point to itself
+
+    new_node->next = *head; // takes (*new_node).next. assigns it to (*head). c is weird sometimes
+    new_node->prev = NULL;
+
+    if (*head) {
+        (*head)->prev = new_node;
+    }
+
+    *head = new_node;
+}
+
+
+/** Removes a node from the front of the list
+ * @returns The removed node, or NULL if the list was empty
+ */
+__attribute__((unused)) // not called until pmm_alloc exists; drop this then
+static memory_node_t *list_remove(memory_node_t **head) {
+    if(!head || !*head) return NULL;
+
+    memory_node_t *node = *head; // temp
+    *head = node->next; // mutates head
+
+    if (*head) {
+        (*head)->prev = NULL;
+    }
+
+    // removes the node from the list
+    node->next = NULL;
+    node->prev = NULL;
+
+    return node;
+}
+
+
+/** Adds a free page to the free list, at the specified order*/
+void pmm_add_free_page(paddr_t addr, unsigned int order) {
+    if (order > MAX_ORDER) return;
+    if (addr & (((paddr_t)PAGE_SIZE << order) - 1)) return; // must be aligned to its block size
+
+    get_hhdm_offset(); // ensures hhdm_offset is set
+
+    memory_node_t *new_node = (memory_node_t *)(addr + hhdm_offset); // cast the address to a memory_node_t pointer
+    list_add(&free_list[order], new_node); // adds the new node to the free list
+}
 
 
 /** Adds a series of buddy-compatible segments to the free list, given a region of usable memory

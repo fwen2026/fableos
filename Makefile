@@ -71,9 +71,9 @@ TEST_RENAME := -Dmemcpy=fable_memcpy -Dmemset=fable_memset \
 TEST_CFLAGS := -std=c17 -fno-builtin -Wall -Wextra -Werror -O1 -g \
                -fsanitize=address,undefined -fno-omit-frame-pointer
 
-$(TEST_BUILD)/test_memory: test/test_memory.c src/kernel/memory.c include/kernel/memory.h Makefile
+$(TEST_BUILD)/test_memory: test/test_memory.c src/util/string.c include/util/string.h Makefile
 	@mkdir -p $(dir $@)
-	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c src/kernel/memory.c
+	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c src/util/string.c
 
 # The kernel's putchar is renamed to fable_putchar so it doesn't collide
 # with the host libc's. Kernel sources are compiled on their own with the
@@ -96,10 +96,21 @@ $(TEST_BUILD)/test_console_serial: test/test_console_serial.c $(TEST_BUILD)/cons
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o
 
-test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial
+# pmm.c is #included by the test itself (to reach its statics), so it is
+# built from a single translation unit.
+$(TEST_BUILD)/test_pmm: test/test_pmm.c src/memory/pmm.c include/memory/pmm.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_pmm.c
+
+.PHONY: test-pmm
+test-pmm: $(TEST_BUILD)/test_pmm
+	./$(TEST_BUILD)/test_pmm
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm
 	./$(TEST_BUILD)/test_memory
 	./$(TEST_BUILD)/test_console
 	./$(TEST_BUILD)/test_console_serial
+	./$(TEST_BUILD)/test_pmm
 
 clean:
 	rm -rf $(BUILD)

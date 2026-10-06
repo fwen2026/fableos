@@ -1,5 +1,5 @@
 /*
- * Host-side unit tests for kernel/memory.c.
+ * Host-side unit tests for util/string.c.
  *
  * The Makefile renames the kernel's memcpy/memset/memmove/memcmp to
  * fable_* via -D so they don't collide with the host libc. Because of
@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "kernel/memory.h"
+#include "util/string.h"
 
 static int tests_run;
 static int tests_failed;
