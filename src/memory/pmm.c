@@ -1,6 +1,8 @@
 #include <memory/pmm.h>
 #include "limine.h"
 #include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <util/math.h>
 
 #define MAX_ORDER 9 // from min size for a page up to 2 MiB
@@ -30,6 +32,55 @@ typedef struct memory_node {
 
 static memory_node_t *free_list[MAX_ORDER + 1]; // 10 linked lists, one for each order
 
+typedef struct {
+    uint64_t *value;
+    size_t size;
+} bitmap_t;
+
+static bitmap_t *bitmap_list[MAX_ORDER + 1];
+
+
+/** Constructs a bitmap
+ * @param addr The address of the bitmap
+ * @param size The number of bits represented in the bitmap
+ */
+bitmap_t bitmap_init(void *addr, size_t size) {
+    bitmap_t bitmap;
+    bitmap.size = size;
+    bitmap.value = (uint64_t *)addr;
+    int num_ints = size / 64 + (size % 64 != 0); // calculate the num of ints we need
+    for (int i = 0; i < num_ints; i++) {
+        bitmap.value[i] = INT64_MAX; // set all bits to 1. clear when pmm_init
+    }
+    return bitmap;
+}
+
+
+/** Sets a bit to the specified value.
+ * @param bitmap The bitmap to modify
+ * @param index The index of the bit to set
+ * @param value The value to set the bit to. True is allocated. False is free.
+ */
+ void bitmap_set_value(bitmap_t *bitmap, size_t index, bool value) {
+    if (!bitmap || index >= bitmap->size) return; // return if out of bounds or doesn't exist
+
+    if (value) {
+        bitmap->value[index / 64] |= (1ULL << (index % 64));
+    } else {
+        bitmap->value[index / 64] &= ~(1ULL << (index % 64));
+    }
+}
+
+
+void bitmap_clear(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, false);}
+void bitmap_set(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, true);}
+
+
+bool bitmap_get(bitmap_t *bitmap, size_t index) {
+    if (!bitmap || index >= bitmap->size) return false; 
+
+    return (bitmap->value[index / 64] & (1ULL << (index % 64))) != 0;
+}
 
 /** Adds a new node to the front of the list */
 static void list_add(memory_node_t **head, memory_node_t *new_node) {
@@ -68,7 +119,7 @@ static memory_node_t *list_remove(memory_node_t **head) {
 }
 
 
-/** Adds a free page to the free list, at the specified order*/
+/** Adds a free page to the free list, at the specified order and at the specified address*/
 void pmm_add_free_page(paddr_t addr, unsigned int order) {
     if (order > MAX_ORDER) return;
     if (addr & (((paddr_t)PAGE_SIZE << order) - 1)) return; // must be aligned to its block size
@@ -87,7 +138,7 @@ void pmm_add_free_page(paddr_t addr, unsigned int order) {
 void pmm_add_block(paddr_t base_addr, size_t size) {
     // align base and size to 4kib
     paddr_t end_addr = (base_addr + size) & ~(0x1000 - 1); // rounds DOWN
-    base_addr = (base_addr + 0x1000 - 1) & ~(0x1000 - 1);
+    base_addr = (base_addr + 0x1000 - 1) & ~(0x1000 - 1); // rounds UP
 
     while (base_addr < end_addr) {
         uint64_t current_page = base_addr / PAGE_SIZE;
@@ -106,9 +157,8 @@ void pmm_add_block(paddr_t base_addr, size_t size) {
 }
 
 
-/** Initializes each region in memory in aligned power-of-two blocks. 
- * First gets the total amount of physical memory available from Limine...
- * ... and then adds it to the free list.
+/** Initializes each region in memory in aligned power-of-two blocks. First gets the total amount 
+ * of physical memory available from Limine and then adds it to the free list.
 */
 void pmm_init(void){
     // Initialize the physical memory manager
