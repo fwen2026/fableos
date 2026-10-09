@@ -17,6 +17,7 @@ typedef struct {
 
 
 void pmm_init(void);
+void log_memory_map(void);
 pmm_regions_t *pmm_alloc(psize_t size);
 void pmm_free(paddr_t addr, psize_t size);
 void pmm_get_stats(pmm_regions_t *regions);

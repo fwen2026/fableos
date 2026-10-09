@@ -33,6 +33,35 @@ void get_hhdm_offset(void) {
     hhdm_offset = request.response->offset;
 }
 
+static const char *memory_map_entry_types[] = {
+    [0] = "Available",
+    [1] = "Reserved",
+    [2] = "ACPI Reclaimable",
+    [3] = "ACPI NVS",
+    [4] = "Bad RAM",
+    [5] = "Bootloader Reclaimable",
+    [6] = "Executable and Modules",
+    [7] = "Framebuffer",
+    [8] = "Reserved Mapped"
+};
+
+
+/** Memory map logging */
+void log_memory_map(void) {
+    if (memmap_request.response != NULL) {
+        console_printf("Memory map request received.\n");
+
+        struct limine_memmap_response *response = memmap_request.response;
+
+        for(uint64_t i = 0; i < response->entry_count; i++) {
+            struct limine_memmap_entry *entry = response->entries[i];
+            console_printf("Memory map entry %d: base = 0x%lx, length = 0x%lx, type = %s\n",
+                           i, entry->base, entry->length, memory_map_entry_types[entry->type]);
+        }
+    }
+}
+
+
 typedef struct memory_node {
     struct memory_node *next;
     struct memory_node *prev;
