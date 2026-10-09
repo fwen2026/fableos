@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <util/math.h>
 #include <util/hcf.h>
+#include <kernel/console.h>
 
 #define MAX_ORDER 9 // from min size for a page up to 2 MiB
 #define PAGE_SIZE 0x1000 // 4 KiB
@@ -28,13 +29,9 @@ void get_hhdm_offset(void) {
     if(request.response == NULL){
         log_error("Failed to get HHDM offset");
         hcf();
-    };
+    }
     hhdm_offset = request.response->offset;
 }
-
-typedef struct {
-    paddr_t addr;
-} pmm_block_t; // represents a block of physical memory
 
 typedef struct memory_node {
     struct memory_node *next;
@@ -51,6 +48,18 @@ typedef struct {
 static bitmap_t bitmap_list[MAX_ORDER + 1];
 
 
+/** Number of 64-bit words needed to hold the given number of bits */
+static size_t bitmap_words(size_t bits) {
+    return div_ceil(bits, 64);
+}
+
+
+/** Number of blocks of the given order needed to cover total_pages pages */
+static size_t blocks_at_order(size_t total_pages, unsigned int order) {
+    return div_ceil(total_pages, 1ULL << order);
+}
+
+
 /** Constructs a bitmap
  * @param addr The address of the bitmap
  * @param size The number of bits represented in the bitmap
@@ -59,8 +68,8 @@ bitmap_t bitmap_init(void *addr, size_t size) {
     bitmap_t bitmap;
     bitmap.size = size;
     bitmap.value = (uint64_t *)addr;
-    int num_ints = size / 64 + (size % 64 != 0); // calculate the num of ints we need
-    for (int i = 0; i < num_ints; i++) {
+    size_t num_ints = bitmap_words(size); // calculate the num of ints we need
+    for (size_t i = 0; i < num_ints; i++) {
         bitmap.value[i] = UINT64_MAX; // set all bits to 1. clear when pmm_init
     }
     return bitmap;
@@ -72,7 +81,7 @@ bitmap_t bitmap_init(void *addr, size_t size) {
  * @param index The index of the bit to set
  * @param value The value to set the bit to. True is allocated. False is free.
  */
- void bitmap_set_value(bitmap_t *bitmap, size_t index, bool value) {
+void bitmap_set_value(bitmap_t *bitmap, size_t index, bool value) {
     if (!bitmap || index >= bitmap->size) return; // return if out of bounds or doesn't exist
 
     if (value) {
@@ -97,8 +106,7 @@ bool bitmap_get(bitmap_t *bitmap, size_t index) {
 /** Gets the size of the bitmap, in bytes. */
 size_t bitmap_get_size(bitmap_t *bitmap) {
     if (!bitmap) return 0;
-    uint64_t num_ints = bitmap->size / 64 + (bitmap->size % 64 != 0);
-    return num_ints * sizeof(uint64_t);
+    return bitmap_words(bitmap->size) * sizeof(uint64_t);
 }
 
 /** Adds a new node to the front of the list */
@@ -154,8 +162,8 @@ void pmm_add_free_page(paddr_t addr, unsigned int order) {
  */
 void pmm_add_block(paddr_t base_addr, size_t size) {
     // align base and size to 4kib
-    paddr_t end_addr = (base_addr + size) & ~(0x1000 - 1); // rounds DOWN
-    base_addr = (base_addr + 0x1000 - 1) & ~(0x1000 - 1); // rounds UP
+    paddr_t end_addr = (base_addr + size) & ~(PAGE_SIZE - 1); // rounds DOWN
+    base_addr = (base_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1); // rounds UP
 
     while (base_addr < end_addr) {
         uint64_t current_page = base_addr / PAGE_SIZE;
@@ -180,11 +188,10 @@ void pmm_add_block(paddr_t base_addr, size_t size) {
 */
 void pmm_init(void){
     if (memmap_request.response == NULL) {
-        log_error("Memory map request failed.\n");
+        log_error("Memory map request failed.");
         hcf();
     }
 
-    console_printf("Memory map request received.\n");
     get_hhdm_offset(); // ensures hhdm_offset is set
 
     size_t zero_orders = 0;
@@ -199,7 +206,7 @@ void pmm_init(void){
     }
 
     if (highest_usable_index == -1) {
-        log_error("No usable memory found.\n");
+        log_error("No usable memory found.");
         hcf();
     }
 
@@ -208,13 +215,11 @@ void pmm_init(void){
 
     size_t net_bytes = 0;
 
-    for(uint64_t i = 0; i < 10; i++) {
-        uint64_t num_blocks = zero_orders / (1ULL << i) + (zero_orders % (1ULL << i) != 0); // ceil
-        uint64_t words = num_blocks / 64 + (num_blocks % 64 != 0);
-        net_bytes += words * sizeof(uint64_t);
+    for(unsigned int i = 0; i <= MAX_ORDER; i++) {
+        net_bytes += bitmap_words(blocks_at_order(zero_orders, i)) * sizeof(uint64_t);
     }
 
-    uint64_t idx = -1;
+    size_t idx = SIZE_MAX;
     for(uint64_t i = 0; i < response->entry_count; i++) {
         struct limine_memmap_entry *entry = response->entries[i];
         if(entry->type == LIMINE_MEMMAP_USABLE && entry->length >= net_bytes) {
@@ -223,16 +228,15 @@ void pmm_init(void){
         }
     }
 
-    if(idx == -1) {
-        log_error("No suitable memory region found.\n");
+    if(idx == SIZE_MAX) {
+        log_error("No suitable memory region found.");
         hcf();
     }
 
     struct limine_memmap_entry *bitmap_entry = response->entries[idx];
     void *cursor = (void *) (bitmap_entry->base + hhdm_offset);
-    for(uint64_t i = 0; i < 10; i++) {
-        uint64_t num_blocks = zero_orders / (1ULL << i) + (zero_orders % (1ULL << i) != 0); // ceil
-        bitmap_list[i] = bitmap_init(cursor, num_blocks);
+    for(unsigned int i = 0; i <= MAX_ORDER; i++) {
+        bitmap_list[i] = bitmap_init(cursor, blocks_at_order(zero_orders, i));
         cursor += bitmap_get_size(&bitmap_list[i]);
     }
 
@@ -241,11 +245,8 @@ void pmm_init(void){
         if(entry->type == LIMINE_MEMMAP_USABLE) {
             if(i == idx) {
                 // Skip the region used for bitmaps
-                paddr_t bitmap_end = bitmap_entry->base + net_bytes;
-                if (entry->base < bitmap_end) {
-                    pmm_add_block(bitmap_end, entry->length - (bitmap_end - entry->base));
-                    continue;
-                }
+                pmm_add_block(entry->base + net_bytes, entry->length - net_bytes);
+                continue;
             }
             pmm_add_block(entry->base, entry->length);
         }

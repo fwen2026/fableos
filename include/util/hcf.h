@@ -1,7 +1,8 @@
 #ifndef HCF_H
 #define HCF_H
 
-static inline void hcf(){
+__attribute__((noreturn))
+static inline void hcf(void){
     for(;;) {
         __asm__ volatile ("hlt");
     }

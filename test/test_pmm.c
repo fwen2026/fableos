@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <setjmp.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -26,6 +27,21 @@
 /* Mach-O rejects section(".limine_requests"); neutralise it for the host.
  * limine.h is already included above, so the macro can't affect it. */
 #define section(x) unused
+
+/* Host stand-ins for kernel services pmm.c uses on its error paths. hcf.h's
+ * `hlt` won't assemble on an arm64 host, so claim its include guard first. */
+#define HCF_H
+static jmp_buf hcf_env;
+static int hcf_armed;
+static int hcf_calls;
+static void hcf(void) {
+    hcf_calls++;
+    if (hcf_armed) longjmp(hcf_env, 1);   /* let a test observe the halt */
+    abort();
+}
+void console_printf(const char *str, ...) { (void)str; }
+void log_error(const char *message) { (void)message; }
+
 #include "../src/memory/pmm.c"
 #undef section
 
@@ -81,7 +97,7 @@ static void setup(paddr_t base) {
     fake_hhdm.revision = 0;
     fake_hhdm.offset = (uint64_t)(uintptr_t)arena - base;
     request.response = &fake_hhdm;
-    hhdm_offset = 0;
+    get_hhdm_offset();                  /* maps phys P to arena + (P - base) */
     for (int i = 0; i <= MAX_ORDER; i++) free_list[i] = NULL;
 }
 
@@ -293,11 +309,15 @@ static void test_get_hhdm_offset_reads_response(void) {
     CHECK(hhdm_offset == (uintptr_t)0xFFFF800000000000ULL);
 }
 
-static void test_get_hhdm_offset_null_response_keeps_value(void) {
+static void test_get_hhdm_offset_null_response_halts_keeps_value(void) {
     setup(0);
     hhdm_offset = 0x1234000;
     request.response = NULL;
-    get_hhdm_offset();
+    hcf_calls = 0;
+    hcf_armed = 1;
+    if (setjmp(hcf_env) == 0) get_hhdm_offset();
+    hcf_armed = 0;
+    CHECK(hcf_calls == 1);
     CHECK(hhdm_offset == 0x1234000);
     request.response = &fake_hhdm;
 }
@@ -516,7 +536,7 @@ int main(void) {
 
     printf("-- get_hhdm_offset\n");
     RUN(test_get_hhdm_offset_reads_response);
-    RUN(test_get_hhdm_offset_null_response_keeps_value);
+    RUN(test_get_hhdm_offset_null_response_halts_keeps_value);
 
     printf("-- pmm_add_free_page\n");
     RUN(test_add_free_page_places_node_at_hhdm_address);

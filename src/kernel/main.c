@@ -2,6 +2,7 @@
 #include <kernel/console.h>
 #include <io/serial.h>
 #include <limine.h>
+#include <util/hcf.h>
 
 // Limine setup
 
@@ -37,14 +38,6 @@ static const char *memory_map_entry_types[] = {
     [7] = "Framebuffer",
     [8] = "Reserved Mapped"
 };
-
-
-/** Halt and Catch Fire */
-void hcf(void){
-    for(;;){
-        __asm__ volatile ("hlt");
-    }   
-}
 
 
 /** Memory map logging */
