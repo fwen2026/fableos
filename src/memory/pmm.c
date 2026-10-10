@@ -228,6 +228,18 @@ void pmm_add_block(paddr_t base_addr, size_t size) {
 }
 
 
+/** Determines the buddy of a block at address with order n */
+paddr_t get_buddy(paddr_t addr, unsigned order) {
+    if (order > MAX_ORDER) return 0;
+
+    // Calculate the size of the block
+    size_t block_size = PAGE_SIZE << order;
+    return addr ^ block_size;
+}
+
+ // --- exposed methods ---
+
+
 /** Initializes each region in memory in aligned power-of-two blocks. First gets the total amount 
  * of physical memory available from Limine and then adds it to the free list.
 */
@@ -332,4 +344,37 @@ paddr_t pmm_alloc(unsigned order) {
     }
 
     return pmm_pop_free_page(order);
+}
+
+
+/** Frees a block of memory.
+ * @param addr The physical address of the memory block to free.
+ * @param order The order of the memory block to free.
+ */
+void pmm_free(paddr_t addr, unsigned order) {
+    if (order > MAX_ORDER) {
+        log_error("Freeing order exceeds max order");
+        return;
+    }
+    if ((addr & (((paddr_t)PAGE_SIZE << order) - 1)) != 0) {
+        log_error("Address is not aligned to specified order");
+        return;
+    }
+
+    unsigned buddy_order = order;
+
+    while (buddy_order < MAX_ORDER){
+        paddr_t buddy = get_buddy(addr, buddy_order);
+        if (buddy == 0) break;
+
+        // Check if the buddy is free
+        if (bitmap_get(&bitmap_list[buddy_order], buddy / (PAGE_SIZE << buddy_order)) != 0) break;
+
+        // TODOs:
+        // write a remove-random-node for linked list
+        // wrap it with the toggle block of order at addr
+        // finish this method
+    }
+
+    pmm_add_free_page(addr, order);
 }
