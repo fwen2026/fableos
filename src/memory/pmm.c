@@ -89,6 +89,9 @@ static size_t blocks_at_order(size_t total_pages, unsigned int order) {
 }
 
 
+// --- stuff for data structures ---
+
+
 /** Constructs a bitmap
  * @param addr The address of the bitmap
  * @param size The number of bits represented in the bitmap
@@ -156,7 +159,6 @@ static void list_add(memory_node_t **head, memory_node_t *new_node) {
 /** Removes a node from the front of the list
  * @returns The removed node, or NULL if the list was empty
  */
-__attribute__((unused)) // not called until pmm_alloc exists; drop this then
 static memory_node_t *list_remove(memory_node_t **head) {
     if(!head || !*head) return NULL;
 
@@ -175,6 +177,9 @@ static memory_node_t *list_remove(memory_node_t **head) {
 }
 
 
+// ---helpers for adding or removing a free page---
+
+
 /** Adds a free page to the free list, at the specified order and at the specified address*/
 void pmm_add_free_page(paddr_t addr, unsigned int order) {
     if (order > MAX_ORDER) return;
@@ -182,31 +187,42 @@ void pmm_add_free_page(paddr_t addr, unsigned int order) {
 
     memory_node_t *new_node = (memory_node_t *)(addr + hhdm_offset); // cast the address to a memory_node_t pointer
     list_add(&free_list[order], new_node); // adds the new node to the free list
+    bitmap_clear(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
 }
 
 
-/** Adds a series of buddy-compatible segments to the free list, given a region of usable memory
+/** Pops the first free page from the free list at the specified order.*/
+paddr_t pmm_pop_free_page(unsigned int order) {
+    if (order > MAX_ORDER) return 0;
+
+    memory_node_t *node = list_remove(&free_list[order]);
+    if (!node) return 0;
+    paddr_t addr = (uintptr_t)node - hhdm_offset;
+    bitmap_set(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
+    return addr;
+}
+
+
+/** Adds a series of buddy-compatible segments to the free list, given a region of usable memory. Also updates the bitmap accordingly.
  * @param base_addr The base address of the memory region
  * @param size The size of the memory region
  */
 void pmm_add_block(paddr_t base_addr, size_t size) {
-    // align base and size to 4kib
+    // alignment
     paddr_t end_addr = (base_addr + size) & ~(PAGE_SIZE - 1); // rounds DOWN
+    if(base_addr == 0) {base_addr = PAGE_SIZE;}
     base_addr = (base_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1); // rounds UP
 
     while (base_addr < end_addr) {
         uint64_t current_page = base_addr / PAGE_SIZE;
         uint64_t remaining_page = (end_addr - base_addr) / PAGE_SIZE;
 
-        unsigned int alignment = (current_page == 0)
-                                ? MAX_ORDER
-                                : __builtin_ctzll(current_page); // counts zeroes from right
+        unsigned int alignment = __builtin_ctzll(current_page); // counts zeroes from right
 
         unsigned int max_remaining = 63 - __builtin_clzll(remaining_page); // counts from left
 
         unsigned int order = min(min(alignment, max_remaining), MAX_ORDER);
         pmm_add_free_page(base_addr, order);
-        bitmap_clear(&bitmap_list[order], base_addr / (PAGE_SIZE * (1ULL << order)));
         base_addr += (1ULL << order) * PAGE_SIZE; // increments the base address by the size of the allocated block
     }
 }
@@ -280,4 +296,40 @@ void pmm_init(void){
             pmm_add_block(entry->base, entry->length);
         }
     }
+}
+
+
+/** Allocates a chunk of memory, and updates both representations accordingly. 
+ * @param order The order of the memory block to allocate.
+ * @return The physical address of the allocated memory, or 0 on failure.
+ */
+paddr_t pmm_alloc(unsigned order) {
+    if (order > MAX_ORDER) {
+        log_error("Allocation order exceeds max order");
+        return 0;
+    }
+
+    unsigned available_order = order;
+    while(available_order < MAX_ORDER + 1 && (free_list[available_order] == NULL)) { available_order++; }
+
+    if (available_order == MAX_ORDER + 1) {
+        log_error("No available memory");
+        return 0;
+    }
+
+    // iteratively split larger blocks until we reach the designated order
+    for(; available_order > order; available_order--) {
+        paddr_t addr = pmm_pop_free_page(available_order);
+
+        if(addr == 0) {
+            log_error("Failed to pop free page");
+            return 0;
+        }
+
+        // add the second half FIRST so LIFO takes care of the rest each iteration.
+        pmm_add_free_page(addr + (1ULL << (available_order - 1)) * PAGE_SIZE, available_order - 1);
+        pmm_add_free_page(addr, available_order - 1);
+    }
+
+    return pmm_pop_free_page(order);
 }
