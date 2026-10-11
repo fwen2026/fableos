@@ -148,9 +148,11 @@ static int collect_blocks(void) {
 }
 
 /* After pmm_add_block(base, size) on an empty PMM, the free lists must be a
- * buddy-compatible exact cover of [round_up(base), round_down(base+size)). */
+ * buddy-compatible exact cover of [round_up(base), round_down(base+size)),
+ * except that page 0 is never handed out. */
 static void check_cover(paddr_t base, size_t size) {
     paddr_t lo = (base + PAGE_SIZE - 1) & ~(paddr_t)(PAGE_SIZE - 1);
+    if (lo == 0) lo = PAGE_SIZE;
     paddr_t hi = (base + size) & ~(paddr_t)(PAGE_SIZE - 1);
     if (hi < lo) hi = lo;
 
@@ -418,30 +420,49 @@ static void test_add_block_unaligned_end_rounds_down(void) {
 static void test_add_block_at_zero_three_pages(void) {
     setup(0);
     pmm_add_block(0, 3 * PAGE_SIZE);
+    /* page 0 is skipped: pages 1 and 2 remain, as two order-0 blocks
+     * (they are not buddies; 1's buddy is 0, 2's is 3). */
     check_cover(0, 3 * PAGE_SIZE);
-    CHECK(count_order(1) == 1 && count_order(0) == 1);
-    CHECK(free_list[1] == (memory_node_t *)phys_to_virt(0));
+    CHECK(count_order(0) == 2 && count_order(1) == 0);
     CHECK(free_list[0] == (memory_node_t *)phys_to_virt(2 * PAGE_SIZE));
+    CHECK(free_list[0]->next == (memory_node_t *)phys_to_virt(PAGE_SIZE));
 }
 
 static void test_add_block_exact_max_order(void) {
+    /* A 2 MiB-aligned 2 MiB region is exactly one max-order block. */
+    setup(0);
+    pmm_add_block(2u * 1024 * 1024, 2u * 1024 * 1024);
+    CHECK(count_order(MAX_ORDER) == 1);
+    check_cover(2u * 1024 * 1024, 2u * 1024 * 1024);
+
+    /* Starting at 0 loses page 0, so the same span can no longer form a
+     * max-order block: pages 1..511 ramp up as orders 0..8. */
     setup(0);
     pmm_add_block(0, 2u * 1024 * 1024);
-    CHECK(count_order(MAX_ORDER) == 1);
+    CHECK(count_order(MAX_ORDER) == 0);
+    for (unsigned o = 0; o <= 8; o++) CHECK(count_order(o) == 1);
     check_cover(0, 2u * 1024 * 1024);
 }
 
 static void test_add_block_larger_than_max_order_splits(void) {
     setup(0);
-    pmm_add_block(0, 6u * 1024 * 1024);
+    pmm_add_block(2u * 1024 * 1024, 6u * 1024 * 1024);
     CHECK(count_order(MAX_ORDER) == 3);
+    check_cover(2u * 1024 * 1024, 6u * 1024 * 1024);
+
+    /* From 0: ramp over pages 1..511, then two full max-order blocks. */
+    setup(0);
+    pmm_add_block(0, 6u * 1024 * 1024);
+    CHECK(count_order(MAX_ORDER) == 2);
+    for (unsigned o = 0; o <= 8; o++) CHECK(count_order(o) == 1);
     check_cover(0, 6u * 1024 * 1024);
 }
 
 static void test_add_block_whole_arena(void) {
     setup(0);
     pmm_add_block(0, ARENA_SIZE);
-    CHECK(count_order(MAX_ORDER) == ARENA_SIZE / (2u * 1024 * 1024));
+    /* one 2 MiB block's worth of address space is lost to the page-0 ramp */
+    CHECK(count_order(MAX_ORDER) == ARENA_SIZE / (2u * 1024 * 1024) - 1);
     check_cover(0, ARENA_SIZE);
     check_only_headers_touched();
 }
@@ -477,19 +498,25 @@ static void test_add_block_nonzero_fake_phys_base(void) {
 
 static void test_add_block_two_regions_accumulate(void) {
     setup(0);
-    pmm_add_block(0, 4 * PAGE_SIZE);
+    pmm_add_block(0x4000, 4 * PAGE_SIZE);
     pmm_add_block(0x100000, 4 * PAGE_SIZE);
     CHECK(count_order(2) == 2);
     CHECK(collect_blocks());
     CHECK(nblocks == 2);
 }
 
-static void test_add_block_page_zero_is_max_order_aligned(void) {
-    /* current_page == 0 must not call ctz(0). A 1-page region at 0 must still
-     * yield order 0 (bounded by remaining), not order 9. */
+static void test_add_block_never_frees_page_zero(void) {
+    /* current_page == 0 must not reach ctz(0) (undefined). Page 0 is skipped,
+     * so a 1-page region at 0 is empty... */
     setup(0);
     pmm_add_block(0, PAGE_SIZE);
+    for (unsigned o = 0; o <= MAX_ORDER; o++) CHECK(free_list[o] == NULL);
+
+    /* ...and a 2-page region at 0 yields just page 1. */
+    setup(0);
+    pmm_add_block(0, 2 * PAGE_SIZE);
     CHECK(count_order(0) == 1);
+    CHECK(free_list[0] == (memory_node_t *)phys_to_virt(PAGE_SIZE));
     for (unsigned o = 1; o <= MAX_ORDER; o++) CHECK(free_list[o] == NULL);
 }
 
@@ -788,7 +815,7 @@ int main(void) {
     RUN(test_add_block_straddles_2mib_boundary);
     RUN(test_add_block_nonzero_fake_phys_base);
     RUN(test_add_block_two_regions_accumulate);
-    RUN(test_add_block_page_zero_is_max_order_aligned);
+    RUN(test_add_block_never_frees_page_zero);
     RUN(test_add_block_random_regions);
 
     printf("-- pmm_free merge bounds\n");
