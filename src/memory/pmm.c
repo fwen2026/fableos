@@ -128,8 +128,11 @@ void bitmap_clear(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, inde
 void bitmap_set(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, true);}
 
 
+/** Gets a bit. Out-of-bounds (or missing bitmap) reads as true, i.e. allocated,
+ * so memory the PMM doesn't manage is never mistaken for a free buddy.
+ */
 bool bitmap_get(bitmap_t *bitmap, size_t index) {
-    if (!bitmap || index >= bitmap->size) return false; 
+    if (!bitmap || index >= bitmap->size) return true;
 
     return (bitmap->value[index / 64] & (1ULL << (index % 64))) != 0;
 }
@@ -397,6 +400,11 @@ void pmm_free(paddr_t addr, unsigned order) {
         log_error("Address is not aligned to specified order");
         return;
     }
+    // the whole block must lie within managed memory (order 0's bitmap has one bit per page)
+    if (addr / PAGE_SIZE + (1ULL << order) > bitmap_list[0].size) {
+        log_error("Freeing a block outside managed memory");
+        return;
+    }
 
     pmm_add_free_page(addr, order);
 
@@ -404,7 +412,7 @@ void pmm_free(paddr_t addr, unsigned order) {
     paddr_t buddy_addr = addr;
 
     while (buddy_order < MAX_ORDER){
-        paddr_t buddy = get_buddy(addr, buddy_order);
+        paddr_t buddy = get_buddy(buddy_addr, buddy_order);
         if (buddy == 0) break;
 
         // Check if the buddy is free
@@ -414,7 +422,7 @@ void pmm_free(paddr_t addr, unsigned order) {
         pmm_unlink_free_page(buddy_order, buddy);
         pmm_unlink_free_page(buddy_order, buddy_addr);
 
-        buddy_addr = min(addr, buddy);
+        buddy_addr = min(buddy_addr, buddy);
         pmm_add_free_page(buddy_addr, buddy_order + 1);
         buddy_order++;
     }
