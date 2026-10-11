@@ -176,6 +176,30 @@ static memory_node_t *list_remove(memory_node_t **head) {
     return node;
 }
 
+ /** Removes a node at a specified address.
+ * @param addr The address of the node to remove
+ * @returns The removed node, or NULL if not found
+ */
+static memory_node_t *list_unlink(paddr_t addr, unsigned order) {
+    memory_node_t *current = (memory_node_t *)(addr + hhdm_offset);
+    if (!current) return NULL;
+
+    // Unlink the node from the list
+    if (current->prev) {
+        current->prev->next = current->next;
+    } else{
+        free_list[order] = current -> next;
+    }
+    if (current->next) {
+        current->next->prev = current->prev;
+    }
+
+    current->next = NULL;
+    current->prev = NULL;
+
+    return current;
+}
+
 
 // ---helpers for adding or removing a free page---
 
@@ -200,6 +224,19 @@ paddr_t pmm_pop_free_page(unsigned int order) {
     paddr_t addr = (uintptr_t)node - hhdm_offset;
     bitmap_set(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
     return addr;
+}
+
+
+/** Removes the node of a free list of a specified order at a specified memory address */
+paddr_t pmm_unlink_free_page(unsigned int order, paddr_t addr) {
+    if (order > MAX_ORDER) return 0;
+
+    memory_node_t *node = list_unlink(addr, order);
+    if (!node) return 0;
+
+    paddr_t freed_addr = (uintptr_t)node - hhdm_offset;
+    bitmap_set(&bitmap_list[order], freed_addr / (PAGE_SIZE * (1ULL << order)));
+    return freed_addr;
 }
 
 
@@ -361,7 +398,10 @@ void pmm_free(paddr_t addr, unsigned order) {
         return;
     }
 
+    pmm_add_free_page(addr, order);
+
     unsigned buddy_order = order;
+    paddr_t buddy_addr = addr;
 
     while (buddy_order < MAX_ORDER){
         paddr_t buddy = get_buddy(addr, buddy_order);
@@ -370,11 +410,12 @@ void pmm_free(paddr_t addr, unsigned order) {
         // Check if the buddy is free
         if (bitmap_get(&bitmap_list[buddy_order], buddy / (PAGE_SIZE << buddy_order)) != 0) break;
 
-        // TODOs:
-        // write a remove-random-node for linked list
-        // wrap it with the toggle block of order at addr
-        // finish this method
-    }
+        // If it's free, merge them
+        pmm_unlink_free_page(buddy_order, buddy);
+        pmm_unlink_free_page(buddy_order, buddy_addr);
 
-    pmm_add_free_page(addr, order);
+        buddy_addr = min(addr, buddy);
+        pmm_add_free_page(buddy_addr, buddy_order + 1);
+        buddy_order++;
+    }
 }
