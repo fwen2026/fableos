@@ -115,7 +115,11 @@ $(TEST_BUILD)/test_pmm_managed: test/memory/test_pmm_managed.c $(PMM_TEST_DEPS)
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_managed.c
 
-.PHONY: test-pmm test-pmm-check test-pmm-managed
+$(TEST_BUILD)/test_pmm_free_guard: test/memory/test_pmm_free_guard.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_free_guard.c
+
+.PHONY: test-pmm test-pmm-check test-pmm-managed test-pmm-free-guard
 test-pmm: $(TEST_BUILD)/test_pmm
 	./$(TEST_BUILD)/test_pmm
 
@@ -125,13 +129,17 @@ test-pmm-check: $(TEST_BUILD)/test_pmm_check
 test-pmm-managed: $(TEST_BUILD)/test_pmm_managed
 	./$(TEST_BUILD)/test_pmm_managed
 
-test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed
+test-pmm-free-guard: $(TEST_BUILD)/test_pmm_free_guard
+	./$(TEST_BUILD)/test_pmm_free_guard
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed $(TEST_BUILD)/test_pmm_free_guard
 	./$(TEST_BUILD)/test_memory
 	./$(TEST_BUILD)/test_console
 	./$(TEST_BUILD)/test_console_serial
 	./$(TEST_BUILD)/test_pmm
 	./$(TEST_BUILD)/test_pmm_check
 	./$(TEST_BUILD)/test_pmm_managed
+	./$(TEST_BUILD)/test_pmm_free_guard
 
 clean:
 	rm -rf $(BUILD)

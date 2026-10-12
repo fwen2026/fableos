@@ -446,6 +446,14 @@ void pmm_free(paddr_t addr, unsigned order) {
         return;
     }
 
+    // don't free already free blocks
+    for(unsigned j = order; j <= MAX_ORDER; j++){
+        if(bitmap_get(&bitmap_list[j], addr / (PAGE_SIZE * (1ULL << j))) == 0){ 
+            log_error("Freeing an already-free block");
+            return;
+        }
+    }
+
     // and finally, no double freeing.
     if(!bitmap_get(&bitmap_list[order], addr / (PAGE_SIZE << order))) {
         log_error("Double free detected");
