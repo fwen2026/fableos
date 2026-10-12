@@ -75,6 +75,7 @@ typedef struct {
 } bitmap_t;
 
 static bitmap_t bitmap_list[MAX_ORDER + 1];
+static bitmap_t unmanaged_list;
 
 
 /** Number of 64-bit words needed to hold the given number of bits */
@@ -243,6 +244,34 @@ paddr_t pmm_unlink_free_page(unsigned int order, paddr_t addr) {
 }
 
 
+/** Marks every page of a block of an order at address usable. */
+static void mark_managed(paddr_t addr, unsigned order) {
+    size_t first = addr / PAGE_SIZE;
+    for(paddr_t addr = first; addr < first + (1ULL << order); addr++ ){
+        bitmap_clear(&unmanaged_list, addr);
+    }
+}
+
+
+/** True if every page of the block of a certain order at a certain address is managed by the PMM. A block that
+ * touches even one unmanaged page, or goes out of bounds is rejected.
+ */
+static bool block_is_managed(paddr_t addr, unsigned order) {
+    size_t first = addr / PAGE_SIZE;
+    size_t count = 1ULL << order;
+    if (first + count > unmanaged_list.size) return false;
+
+    if (count < 64) {
+        uint64_t mask = ((1ULL << count) - 1) << (first % 64);
+        return (unmanaged_list.value[first / 64] & mask) == 0;
+    }
+    for (size_t w = first / 64; w < (first + count) / 64; w++) {
+        if (unmanaged_list.value[w] != 0) return false;
+    }
+    return true;
+}
+
+
 /** Adds a series of buddy-compatible segments to the free list, given a region of usable memory. Also updates the bitmap accordingly.
  * @param base_addr The base address of the memory region
  * @param size The size of the memory region
@@ -263,6 +292,7 @@ void pmm_add_block(paddr_t base_addr, size_t size) {
 
         unsigned int order = min(min(alignment, max_remaining), MAX_ORDER);
         pmm_add_free_page(base_addr, order);
+        mark_managed(base_addr, order);
         base_addr += (1ULL << order) * PAGE_SIZE; // increments the base address by the size of the allocated block
     }
 }
@@ -292,29 +322,32 @@ void pmm_init(void){
     get_hhdm_offset(); // ensures hhdm_offset is set
 
     size_t zero_orders = 0;
-    int highest_usable_index = -1;
+    uint64_t max_addr = 0; // end of the highest usable region. doesn't rely on limine's sort order
+    bool found_usable = false;
     struct limine_memmap_response *response = memmap_request.response;
 
     for(uint64_t i = 0; i < response->entry_count; i++) {
         struct limine_memmap_entry *entry = response->entries[i];
-        if(entry->type == LIMINE_MEMMAP_USABLE) {
-            highest_usable_index = i;
-        }
+        if(entry->type != LIMINE_MEMMAP_USABLE) continue;
+
+        found_usable = true;
+        uint64_t end = entry->base + entry->length;
+        if (end > max_addr) max_addr = end;
     }
 
-    if (highest_usable_index == -1) {
+    if (!found_usable) {
         log_error("No usable memory found.");
         hcf();
     }
 
-    struct limine_memmap_entry *entry = response->entries[highest_usable_index];
-    zero_orders = (entry->base + entry->length) / PAGE_SIZE;
+    zero_orders = max_addr / PAGE_SIZE;
 
     size_t net_bytes = 0;
 
     for(unsigned int i = 0; i <= MAX_ORDER; i++) {
         net_bytes += bitmap_words(blocks_at_order(zero_orders, i)) * sizeof(uint64_t);
     }
+    net_bytes += bitmap_words(zero_orders) * sizeof(uint64_t); // same size as zero
 
     size_t idx = SIZE_MAX;
     for(uint64_t i = 0; i < response->entry_count; i++) {
@@ -336,7 +369,9 @@ void pmm_init(void){
         bitmap_list[i] = bitmap_init(cursor, blocks_at_order(zero_orders, i));
         cursor += bitmap_get_size(&bitmap_list[i]);
     }
+    unmanaged_list = bitmap_init(cursor, zero_orders);
 
+    // Only usable regions are added. pmm_add_block also updates the allowed list.
     for(uint64_t i = 0; i < response->entry_count; i++) {
         struct limine_memmap_entry *entry = response->entries[i];
         if(entry->type == LIMINE_MEMMAP_USABLE) {
@@ -405,9 +440,14 @@ void pmm_free(paddr_t addr, unsigned order) {
         log_error("Freeing a block outside managed memory");
         return;
     }
+    // only free allowed blocks
+    if (!block_is_managed(addr, order)) {
+        log_error("Freeing a block that touches unmanaged memory");
+        return;
+    }
 
     // and finally, no double freeing.
-    if(bitmap_get(&bitmap_list[order], addr / (PAGE_SIZE << order))) {
+    if(!bitmap_get(&bitmap_list[order], addr / (PAGE_SIZE << order))) {
         log_error("Double free detected");
         return;
     }

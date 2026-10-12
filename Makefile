@@ -22,6 +22,9 @@ CFLAGS := -std=c17 -m64 -mcmodel=kernel -mno-red-zone -mgeneral-regs-only \
           -fno-asynchronous-unwind-tables -fno-unwind-tables \
           -Wall -Wextra -Werror -O2 -g
 LDFLAGS := -m elf_x86_64 -T linker.ld -nostdlib -z max-page-size=0x1000
+# Compiler runtime (__popcountdi2 etc). Query it with the kernel CFLAGS so the
+# right multilib is picked; the linker only pulls in the objects we reference.
+LIBGCC := $(shell $(CC) $(CFLAGS) -print-libgcc-file-name)
 
 SRCS := $(shell find src -type f -name '*.c' | sort)
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
@@ -34,7 +37,7 @@ all: $(KERNEL)
 
 $(KERNEL): $(OBJS) linker.ld Makefile
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBGCC)
 
 $(BUILD)/%.o: %.c Makefile
 	@mkdir -p $(dir $@)
@@ -96,21 +99,39 @@ $(TEST_BUILD)/test_console_serial: test/test_console_serial.c $(TEST_BUILD)/cons
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o
 
-# pmm.c is #included by the test itself (to reach its statics), so it is
-# built from a single translation unit.
-$(TEST_BUILD)/test_pmm: test/test_pmm.c src/memory/pmm.c include/memory/pmm.h Makefile
-	@mkdir -p $(dir $@)
-	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_pmm.c
+# pmm.c is #included by each test (via test/memory/pmm_harness.h) to reach its
+# statics, so every test is built from a single translation unit.
+PMM_TEST_DEPS := test/memory/pmm_harness.h src/memory/pmm.c include/memory/pmm.h Makefile
 
-.PHONY: test-pmm
+$(TEST_BUILD)/test_pmm: test/memory/test_pmm.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm.c
+
+$(TEST_BUILD)/test_pmm_check: test/memory/test_pmm_check.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_check.c
+
+$(TEST_BUILD)/test_pmm_managed: test/memory/test_pmm_managed.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_managed.c
+
+.PHONY: test-pmm test-pmm-check test-pmm-managed
 test-pmm: $(TEST_BUILD)/test_pmm
 	./$(TEST_BUILD)/test_pmm
 
-test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm
+test-pmm-check: $(TEST_BUILD)/test_pmm_check
+	./$(TEST_BUILD)/test_pmm_check
+
+test-pmm-managed: $(TEST_BUILD)/test_pmm_managed
+	./$(TEST_BUILD)/test_pmm_managed
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed
 	./$(TEST_BUILD)/test_memory
 	./$(TEST_BUILD)/test_console
 	./$(TEST_BUILD)/test_console_serial
 	./$(TEST_BUILD)/test_pmm
+	./$(TEST_BUILD)/test_pmm_check
+	./$(TEST_BUILD)/test_pmm_managed
 
 clean:
 	rm -rf $(BUILD)
