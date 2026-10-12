@@ -406,6 +406,12 @@ void pmm_free(paddr_t addr, unsigned order) {
         return;
     }
 
+    // and finally, no double freeing.
+    if(bitmap_get(&bitmap_list[order], addr / (PAGE_SIZE << order))) {
+        log_error("Double free detected");
+        return;
+    }
+
     pmm_add_free_page(addr, order);
 
     unsigned buddy_order = order;
@@ -426,4 +432,44 @@ void pmm_free(paddr_t addr, unsigned order) {
         pmm_add_free_page(buddy_addr, buddy_order + 1);
         buddy_order++;
     }
+}
+
+// --- diagnostics ---
+
+/** Returns the number of free entries in a bitmap */
+unsigned num_free(bitmap_t *bitmap){
+    unsigned n = 0;
+    for(unsigned i = 0; i < bitmap_words(bitmap->size); i++){
+        n += __builtin_popcountll(~(bitmap->value[i]));
+    }
+    return n;
+}
+
+
+/** Checks whether the bitmap and free list are in sync, along with a couple other invariants*/
+Status pmm_check(void) {
+    for (unsigned int i = 0; i <= MAX_ORDER; i++) {
+        unsigned node_count = 0;
+        memory_node_t *current = free_list[i];
+        memory_node_t *prev = NULL;
+        while (current) {
+            paddr_t physical = (uintptr_t)current - hhdm_offset;
+            if (physical & (((paddr_t)PAGE_SIZE << i) - 1)) { return MISALIGNMENT; } // this needs to be first
+            if (current -> prev != prev){ return LL_INIT; }
+            if (bitmap_get(&bitmap_list[i], physical / (PAGE_SIZE * (1ULL << i))) == 1) { return DESYNC; }
+            if (i != MAX_ORDER && bitmap_get(&bitmap_list[i], 
+                get_buddy(physical, i) / (PAGE_SIZE * (1ULL << i))) == 0){ return FREE_BUDDY; }
+
+            for(unsigned j = i + 1; j <= MAX_ORDER; j++){
+                if(bitmap_get(&bitmap_list[j], physical / (PAGE_SIZE * (1ULL << j))) == 0){ return OVERLAP; }
+            }
+            node_count++;
+            prev = current;
+            current = current->next;
+        }
+        if (node_count != num_free(&bitmap_list[i])){
+            return DESYNC;
+        }
+    }
+    return PASS;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef uint64_t psize_t;
 typedef uint64_t paddr_t;
@@ -15,9 +16,19 @@ typedef struct {
     uint64_t count;
 } pmm_regions_t;
 
+typedef enum {
+    PASS,
+    DESYNC,
+    LL_INIT,
+    FREE_BUDDY,
+    OVERLAP,
+    MISALIGNMENT
+} Status;
+
 
 void pmm_init(void);
 void log_memory_map(void);
+
 paddr_t pmm_alloc(unsigned order);
 void pmm_free(paddr_t addr, unsigned order);
-void pmm_get_stats(pmm_regions_t *regions);
+Status pmm_check(void);

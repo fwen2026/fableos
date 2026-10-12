@@ -22,13 +22,18 @@ static volatile uint64_t limine_requests_start_marker[] = LIMINE_REQUESTS_START_
 __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
+void memory_init(void){
+    pmm_init();
+    log_info("Physical memory manager initialized.");
+    log_memory_map();
+}
+
 void kmain(void){
     if(LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)){
         serial_init();
         log_info("Serial initialized.");
-        log_memory_map();
 
-        console_printf("Hello from FableOS! \n");
+        memory_init();
     }
 
     hcf();
