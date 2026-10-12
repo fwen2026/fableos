@@ -125,8 +125,8 @@ void bitmap_set_value(bitmap_t *bitmap, size_t index, bool value) {
 }
 
 
-void bitmap_clear(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, false);}
-void bitmap_set(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, true);}
+void bitmap_set_clear(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, false);}
+void bitmap_set_allocate(bitmap_t *bitmap, size_t index) {bitmap_set_value(bitmap, index, true);}
 
 
 /** Gets a bit. Out-of-bounds (or missing bitmap) reads as true, i.e. allocated,
@@ -215,7 +215,7 @@ void pmm_add_free_page(paddr_t addr, unsigned int order) {
 
     memory_node_t *new_node = (memory_node_t *)(addr + hhdm_offset); // cast the address to a memory_node_t pointer
     list_add(&free_list[order], new_node); // adds the new node to the free list
-    bitmap_clear(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
+    bitmap_set_clear(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
 }
 
 
@@ -226,7 +226,7 @@ paddr_t pmm_pop_free_page(unsigned int order) {
     memory_node_t *node = list_remove(&free_list[order]);
     if (!node) return 0;
     paddr_t addr = (uintptr_t)node - hhdm_offset;
-    bitmap_set(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
+    bitmap_set_allocate(&bitmap_list[order], addr / (PAGE_SIZE * (1ULL << order)));
     return addr;
 }
 
@@ -239,7 +239,7 @@ paddr_t pmm_unlink_free_page(unsigned int order, paddr_t addr) {
     if (!node) return 0;
 
     paddr_t freed_addr = (uintptr_t)node - hhdm_offset;
-    bitmap_set(&bitmap_list[order], freed_addr / (PAGE_SIZE * (1ULL << order)));
+    bitmap_set_allocate(&bitmap_list[order], freed_addr / (PAGE_SIZE * (1ULL << order)));
     return freed_addr;
 }
 
@@ -248,7 +248,7 @@ paddr_t pmm_unlink_free_page(unsigned int order, paddr_t addr) {
 static void mark_managed(paddr_t addr, unsigned order) {
     size_t first = addr / PAGE_SIZE;
     for(paddr_t addr = first; addr < first + (1ULL << order); addr++ ){
-        bitmap_clear(&unmanaged_list, addr);
+        bitmap_set_clear(&unmanaged_list, addr);
     }
 }
 
