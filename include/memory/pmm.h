@@ -25,7 +25,7 @@ typedef enum {
     MISALIGNMENT
 } Status;
 
-
+uintptr_t get_hhdm_offset();
 void pmm_init(void);
 void log_memory_map(void);
 

@@ -1,5 +1,5 @@
-#include <memory/pmm.h>
 #include "limine.h"
+#include <memory/pmm.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -18,6 +18,10 @@ static volatile struct limine_memmap_request memmap_request = {
 };
 
 static uintptr_t hhdm_offset;
+
+uintptr_t get_hhdm_offset(){
+    return hhdm_offset;
+}
 
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_hhdm_request request = {
@@ -422,7 +426,7 @@ paddr_t pmm_alloc(unsigned order) {
 }
 
 
-/** Frees a block of memory.
+/** Frees a block of memory. 
  * @param addr The physical address of the memory block to free.
  * @param order The order of the memory block to free.
  */
@@ -446,7 +450,7 @@ void pmm_free(paddr_t addr, unsigned order) {
         return;
     }
 
-    // don't free already free blocks
+    // don't double free if an ancestor is free.
     for(unsigned j = order; j <= MAX_ORDER; j++){
         if(bitmap_get(&bitmap_list[j], addr / (PAGE_SIZE * (1ULL << j))) == 0){ 
             log_error("Freeing an already-free block");
@@ -476,7 +480,7 @@ void pmm_free(paddr_t addr, unsigned order) {
         pmm_unlink_free_page(buddy_order, buddy);
         pmm_unlink_free_page(buddy_order, buddy_addr);
 
-        buddy_addr = min(buddy_addr, buddy);
+        buddy_addr = (buddy_addr > buddy) ? buddy : buddy_addr;
         pmm_add_free_page(buddy_addr, buddy_order + 1);
         buddy_order++;
     }
