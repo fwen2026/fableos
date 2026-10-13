@@ -79,7 +79,7 @@ void slab_init(unsigned idx){
         log_error("PMM allocation failed");
         return;
     }
-    slab_t* new_slab = phys + get_hhdm_offset(); // convert to virt memory
+    slab_t* new_slab = (slab_t*)(phys + get_hhdm_offset()); // convert to virt memory
 
     new_slab->cache_idx = idx;
     new_slab->free_head = NULL; //temp for now. fill in later.
@@ -124,6 +124,9 @@ void *kmalloc(size_t size){
         if(cache_list[idx].partial_head == NULL){
             if(cache_list[idx].empty_head == NULL){
                 slab_init(idx);
+                if(cache_list[idx].empty_head == NULL){
+                    return NULL;
+                }
             } 
             slab = cache_list[idx].empty_head;
 
