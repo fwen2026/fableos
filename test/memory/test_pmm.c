@@ -106,22 +106,22 @@ static void test_list_add_same_node_twice_is_not_a_cycle(void) {
     CHECK(a.next != &a);
 }
 
-/* ======================== get_hhdm_offset ============================== */
+/* ======================== init_hhdm_offset ============================= */
 
-static void test_get_hhdm_offset_reads_response(void) {
+static void test_init_hhdm_offset_reads_response(void) {
     setup(0);
     fake_hhdm.offset = 0xFFFF800000000000ULL;
-    get_hhdm_offset();
+    init_hhdm_offset();
     CHECK(hhdm_offset == (uintptr_t)0xFFFF800000000000ULL);
 }
 
-static void test_get_hhdm_offset_null_response_halts_keeps_value(void) {
+static void test_init_hhdm_offset_null_response_halts_keeps_value(void) {
     setup(0);
     hhdm_offset = 0x1234000;
     request.response = NULL;
     hcf_calls = 0;
     hcf_armed = 1;
-    if (setjmp(hcf_env) == 0) get_hhdm_offset();
+    if (setjmp(hcf_env) == 0) init_hhdm_offset();
     hcf_armed = 0;
     CHECK(hcf_calls == 1);
     CHECK(hhdm_offset == 0x1234000);
@@ -425,7 +425,7 @@ static void test_free_next_to_never_freed_buddy_does_not_merge(void) {
 }
 
 /* Freeing an address outside managed memory. pmm_add_free_page() writes the
- * list node unconditionally while bitmap_clear() silently ignores the
+ * list node unconditionally while bitmap_set_clear() silently ignores the
  * out-of-range index, so the bogus block lands on a free list with no bitmap
  * record and a later pmm_alloc() would hand out memory that doesn't exist.
  * Correct behaviour: reject it, touch nothing. */
@@ -522,9 +522,9 @@ int main(void) {
     RUN(test_list_remove_detaches_node);
     RUN(test_list_add_same_node_twice_is_not_a_cycle);
 
-    printf("-- get_hhdm_offset\n");
-    RUN(test_get_hhdm_offset_reads_response);
-    RUN(test_get_hhdm_offset_null_response_halts_keeps_value);
+    printf("-- init_hhdm_offset\n");
+    RUN(test_init_hhdm_offset_reads_response);
+    RUN(test_init_hhdm_offset_null_response_halts_keeps_value);
 
     printf("-- pmm_add_free_page\n");
     RUN(test_add_free_page_places_node_at_hhdm_address);

@@ -202,7 +202,7 @@ static void test_ll_init_tail_prev_skips_a_node(void) {
 static void test_desync_listed_block_marked_allocated(void) {
     three_singletons();
     EXPECT_STATUS(PASS);
-    bitmap_set(&bitmap_list[0], bit_index(BASE + 2 * PAGE_SIZE, 0));
+    bitmap_set_allocate(&bitmap_list[0], bit_index(BASE + 2 * PAGE_SIZE, 0));
     EXPECT_STATUS(DESYNC);
 }
 
@@ -213,8 +213,8 @@ static void test_desync_listed_block_marked_allocated(void) {
 static void test_desync_swapped_bits_keep_counts_equal(void) {
     three_singletons();
     EXPECT_STATUS(PASS);
-    bitmap_set(&bitmap_list[0],   bit_index(BASE + 2 * PAGE_SIZE, 0));  /* listed -> allocated */
-    bitmap_clear(&bitmap_list[0], bit_index(BASE + 8 * PAGE_SIZE, 0));  /* unlisted -> free    */
+    bitmap_set_allocate(&bitmap_list[0],   bit_index(BASE + 2 * PAGE_SIZE, 0));  /* listed -> allocated */
+    bitmap_set_clear(&bitmap_list[0], bit_index(BASE + 8 * PAGE_SIZE, 0));  /* unlisted -> free    */
     EXPECT_STATUS(DESYNC);
 }
 
@@ -232,7 +232,7 @@ static void test_desync_node_lost_from_list(void) {
 static void test_desync_stray_free_bit_at_high_order(void) {
     fresh_empty(TWO_MIB);
     EXPECT_STATUS(PASS);
-    bitmap_clear(&bitmap_list[5], bit_index(BASE, 5));
+    bitmap_set_clear(&bitmap_list[5], bit_index(BASE, 5));
     EXPECT_STATUS(DESYNC);
 }
 

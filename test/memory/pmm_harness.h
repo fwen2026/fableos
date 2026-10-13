@@ -103,7 +103,7 @@ static inline void setup(paddr_t base) {
     fake_hhdm.revision = 0;
     fake_hhdm.offset = (uint64_t)(uintptr_t)arena - base;
     request.response = &fake_hhdm;
-    get_hhdm_offset();                  /* maps phys P to arena + (P - base) */
+    init_hhdm_offset();                 /* maps phys P to arena + (P - base) */
     for (int i = 0; i <= MAX_ORDER; i++) free_list[i] = NULL;
     for (int i = 0; i <= MAX_ORDER; i++) bitmap_list[i] = (bitmap_t){0};
     unmanaged_list = (bitmap_t){0};

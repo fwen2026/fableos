@@ -45,9 +45,9 @@ static void test_block_is_managed_every_order(void) {
         size_t probes[] = { 0, count / 2, count - 1, 31, 32, 63, 64 };
         for (size_t k = 0; k < sizeof probes / sizeof probes[0]; k++) {
             if (probes[k] >= count) continue;
-            bitmap_set(&unmanaged_list, first + probes[k]);
+            bitmap_set_allocate(&unmanaged_list, first + probes[k]);
             CHECK(!block_is_managed(BASE, o));
-            bitmap_clear(&unmanaged_list, first + probes[k]);
+            bitmap_set_clear(&unmanaged_list, first + probes[k]);
             CHECK(block_is_managed(BASE, o));
         }
     }

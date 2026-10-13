@@ -29,7 +29,7 @@ static volatile struct limine_hhdm_request request = {
     .revision = 0
 };
 
-void get_hhdm_offset(void) {
+static void init_hhdm_offset(void) {
     if(request.response == NULL){
         log_error("Failed to get HHDM offset");
         hcf();
@@ -323,7 +323,7 @@ void pmm_init(void){
         hcf();
     }
 
-    get_hhdm_offset(); // ensures hhdm_offset is set
+    init_hhdm_offset(); // ensures hhdm_offset is set
 
     size_t zero_orders = 0;
     uint64_t max_addr = 0; // end of the highest usable region. doesn't rely on limine's sort order

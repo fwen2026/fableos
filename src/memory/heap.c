@@ -2,12 +2,14 @@
 #include <memory/pmm.h>
 #include <util/hcf.h>
 #include <util/math.h>
+#include <kernel/console.h>
 
 #define CACHE_COUNT 8 // from 16 bytes to 2048 bytes: half a page.
 #define SLAB_SIZE 4096 // 4096 bytes
 #define LARGE_HEADER_SIZE 16
 #define IDENTIFIER 0xDEADBEEF
 #define MAX_ORDER 9
+#define MAX_LARGE_SIZE (((size_t)SLAB_SIZE << MAX_ORDER) - LARGE_HEADER_SIZE) // biggest block the PMM can give us, minus metadata in bytes
 
 typedef struct slab_node{
     struct slab_node *next;
@@ -121,6 +123,11 @@ void heap_init(){
 
 /** Because the slabs can't support sizes past 2048 bytes, we need a different approach. */
 static void *kmalloc_large(size_t size){
+    // wraparound check
+    if(size > MAX_LARGE_SIZE){
+        return NULL;
+    }
+
     size_t size_and_metadata = size + LARGE_HEADER_SIZE;
     size_t num_pages = div_ceil(size_and_metadata, SLAB_SIZE);
 
