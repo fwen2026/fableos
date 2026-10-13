@@ -22,8 +22,11 @@ CFLAGS := -std=c17 -m64 -mcmodel=kernel -mno-red-zone -mgeneral-regs-only \
           -fno-asynchronous-unwind-tables -fno-unwind-tables \
           -Wall -Wextra -Werror -O2 -g
 LDFLAGS := -m elf_x86_64 -T linker.ld -nostdlib -z max-page-size=0x1000
+# Compiler runtime (__popcountdi2 etc). Query it with the kernel CFLAGS so the
+# right multilib is picked; the linker only pulls in the objects we reference.
+LIBGCC := $(shell $(CC) $(CFLAGS) -print-libgcc-file-name)
 
-SRCS := $(shell find kernel io -type f -name '*.c' | sort)
+SRCS := $(shell find src -type f -name '*.c' | sort)
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -34,7 +37,7 @@ all: $(KERNEL)
 
 $(KERNEL): $(OBJS) linker.ld Makefile
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBGCC)
 
 $(BUILD)/%.o: %.c Makefile
 	@mkdir -p $(dir $@)
@@ -71,12 +74,81 @@ TEST_RENAME := -Dmemcpy=fable_memcpy -Dmemset=fable_memset \
 TEST_CFLAGS := -std=c17 -fno-builtin -Wall -Wextra -Werror -O1 -g \
                -fsanitize=address,undefined -fno-omit-frame-pointer
 
-$(TEST_BUILD)/test_memory: test/test_memory.c kernel/memory.c include/kernel/memory.h Makefile
+$(TEST_BUILD)/test_memory: test/test_memory.c src/util/string.c include/util/string.h Makefile
 	@mkdir -p $(dir $@)
-	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c kernel/memory.c
+	$(HOSTCC) $(CPPFLAGS) $(TEST_RENAME) $(TEST_CFLAGS) -o $@ test/test_memory.c src/util/string.c
 
-test: $(TEST_BUILD)/test_memory
+# The kernel's putchar is renamed to fable_putchar so it doesn't collide
+# with the host libc's. Kernel sources are compiled on their own with the
+# rename; the test files are compiled without it so they can use <stdio.h>.
+TEST_PUTCHAR_RENAME := -Dputchar=fable_putchar
+
+$(TEST_BUILD)/console.o: src/kernel/console.c include/kernel/console.h include/io/serial.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
+
+$(TEST_BUILD)/serial.o: src/io/serial.c include/io/serial.h include/io/io.h Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_PUTCHAR_RENAME) $(TEST_CFLAGS) -c $< -o $@
+
+$(TEST_BUILD)/test_console: test/test_console.c $(TEST_BUILD)/console.o Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console.c $(TEST_BUILD)/console.o
+
+$(TEST_BUILD)/test_console_serial: test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o Makefile
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/test_console_serial.c $(TEST_BUILD)/console.o $(TEST_BUILD)/serial.o
+
+# pmm.c is #included by each test (via test/memory/pmm_harness.h) to reach its
+# statics, so every test is built from a single translation unit.
+PMM_TEST_DEPS := test/memory/pmm_harness.h src/memory/pmm.c include/memory/pmm.h Makefile
+
+$(TEST_BUILD)/test_pmm: test/memory/test_pmm.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm.c
+
+$(TEST_BUILD)/test_pmm_check: test/memory/test_pmm_check.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_check.c
+
+$(TEST_BUILD)/test_pmm_managed: test/memory/test_pmm_managed.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_managed.c
+
+$(TEST_BUILD)/test_pmm_free_guard: test/memory/test_pmm_free_guard.c $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_free_guard.c
+
+# heap.c is #included by its test alongside pmm.c (the heap runs on the real PMM).
+$(TEST_BUILD)/test_heap: test/memory/test_heap.c src/memory/heap.c include/memory/heap.h $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_heap.c
+
+.PHONY: test-pmm test-pmm-check test-pmm-managed test-pmm-free-guard test-heap
+test-pmm: $(TEST_BUILD)/test_pmm
+	./$(TEST_BUILD)/test_pmm
+
+test-pmm-check: $(TEST_BUILD)/test_pmm_check
+	./$(TEST_BUILD)/test_pmm_check
+
+test-pmm-managed: $(TEST_BUILD)/test_pmm_managed
+	./$(TEST_BUILD)/test_pmm_managed
+
+test-pmm-free-guard: $(TEST_BUILD)/test_pmm_free_guard
+	./$(TEST_BUILD)/test_pmm_free_guard
+
+test-heap: $(TEST_BUILD)/test_heap
+	./$(TEST_BUILD)/test_heap
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed $(TEST_BUILD)/test_pmm_free_guard $(TEST_BUILD)/test_heap
 	./$(TEST_BUILD)/test_memory
+	./$(TEST_BUILD)/test_console
+	./$(TEST_BUILD)/test_console_serial
+	./$(TEST_BUILD)/test_pmm
+	./$(TEST_BUILD)/test_pmm_check
+	./$(TEST_BUILD)/test_pmm_managed
+	./$(TEST_BUILD)/test_pmm_free_guard
+	./$(TEST_BUILD)/test_heap
 
 clean:
 	rm -rf $(BUILD)

@@ -1,0 +1,34 @@
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef uint64_t psize_t;
+typedef uint64_t paddr_t;
+
+typedef struct {
+    paddr_t addr;
+    psize_t size;
+} pmm_region_t;
+
+typedef struct {
+    pmm_region_t *regions; // TODO: find a place where this can live
+    uint64_t count;
+} pmm_regions_t;
+
+typedef enum {
+    PASS,
+    DESYNC,
+    LL_INIT,
+    FREE_BUDDY,
+    OVERLAP,
+    MISALIGNMENT
+} Status;
+
+uintptr_t get_hhdm_offset();
+void pmm_init(void);
+void log_memory_map(void);
+
+paddr_t pmm_alloc(unsigned order);
+void pmm_free(paddr_t addr, unsigned order);
+Status pmm_check(void);
