@@ -2,6 +2,7 @@
 #include <kernel/console.h>
 #include <io/serial.h>
 #include <memory/pmm.h>
+#include <memory/heap.h>
 #include <limine.h>
 #include <util/hcf.h>
 
@@ -26,6 +27,9 @@ void memory_init(void){
     pmm_init();
     log_info("Physical memory manager initialized.");
     log_memory_map();
+
+    heap_init();
+    log_info("Heap initialized");
 }
 
 void kmain(void){
