@@ -119,7 +119,12 @@ $(TEST_BUILD)/test_pmm_free_guard: test/memory/test_pmm_free_guard.c $(PMM_TEST_
 	@mkdir -p $(dir $@)
 	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_pmm_free_guard.c
 
-.PHONY: test-pmm test-pmm-check test-pmm-managed test-pmm-free-guard
+# heap.c is #included by its test alongside pmm.c (the heap runs on the real PMM).
+$(TEST_BUILD)/test_heap: test/memory/test_heap.c src/memory/heap.c include/memory/heap.h $(PMM_TEST_DEPS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(CPPFLAGS) $(TEST_CFLAGS) -o $@ test/memory/test_heap.c
+
+.PHONY: test-pmm test-pmm-check test-pmm-managed test-pmm-free-guard test-heap
 test-pmm: $(TEST_BUILD)/test_pmm
 	./$(TEST_BUILD)/test_pmm
 
@@ -132,7 +137,10 @@ test-pmm-managed: $(TEST_BUILD)/test_pmm_managed
 test-pmm-free-guard: $(TEST_BUILD)/test_pmm_free_guard
 	./$(TEST_BUILD)/test_pmm_free_guard
 
-test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed $(TEST_BUILD)/test_pmm_free_guard
+test-heap: $(TEST_BUILD)/test_heap
+	./$(TEST_BUILD)/test_heap
+
+test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_console_serial $(TEST_BUILD)/test_pmm $(TEST_BUILD)/test_pmm_check $(TEST_BUILD)/test_pmm_managed $(TEST_BUILD)/test_pmm_free_guard $(TEST_BUILD)/test_heap
 	./$(TEST_BUILD)/test_memory
 	./$(TEST_BUILD)/test_console
 	./$(TEST_BUILD)/test_console_serial
@@ -140,6 +148,7 @@ test: $(TEST_BUILD)/test_memory $(TEST_BUILD)/test_console $(TEST_BUILD)/test_co
 	./$(TEST_BUILD)/test_pmm_check
 	./$(TEST_BUILD)/test_pmm_managed
 	./$(TEST_BUILD)/test_pmm_free_guard
+	./$(TEST_BUILD)/test_heap
 
 clean:
 	rm -rf $(BUILD)

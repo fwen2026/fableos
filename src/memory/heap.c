@@ -7,7 +7,9 @@
 #define CACHE_COUNT 8 // from 16 bytes to 2048 bytes: half a page.
 #define SLAB_SIZE 4096 // 4096 bytes
 #define LARGE_HEADER_SIZE 16
-#define IDENTIFIER 0xDEADBEEF
+#define IDENTIFIER_HEADER 0xDEADBEEF
+#define IDENTIFIER_CACHE 0xCAFEBABE
+
 #define MAX_ORDER 9
 #define MAX_LARGE_SIZE (((size_t)SLAB_SIZE << MAX_ORDER) - LARGE_HEADER_SIZE) // biggest block the PMM can give us, minus metadata in bytes
 
@@ -17,6 +19,7 @@ typedef struct slab_node{
 
 
 typedef struct slab{
+    uint32_t identifier;
     struct slab *prev;
     struct slab *next;
     slab_node_t *free_head;
@@ -35,8 +38,8 @@ static cache_t cache_list[CACHE_COUNT];
 
 
 typedef struct {
-    uint32_t order;
     uint32_t identifier;
+    uint32_t order;
 } large_alloc_header_t;
 
 
@@ -82,11 +85,12 @@ slab_t *pop_cache_node(slab_t **head){
     return slab;
 }
 
+
 /** Unlink a generalized node from the free list
  * @param node the address of the node to remove
  * @param head the head of the list. necessary for updating if it's the first element.
 */
-slab_t *unlink_cache_node(slab_t *node, slab_t **head) {
+void unlink_cache_node(slab_t *node, slab_t **head) {
     if(node->prev){
         node->prev->next = node->next;
     } else{
@@ -103,6 +107,16 @@ slab_t *unlink_cache_node(slab_t *node, slab_t **head) {
 }
 
 
+/** Address of the first object in a slab. Objects are packed against the END of the page so each one is
+ * naturally aligned to its block size, and the slab_t metadata sits at the start. The slab's cache_idx must be set.
+ */
+static uintptr_t slab_first_object(slab_t *slab){
+    size_t block_size = 16UL << slab->cache_idx;
+    size_t usable_space = ((SLAB_SIZE - sizeof(slab_t)) / block_size) * block_size; // round this DOWN.
+    return (uintptr_t)slab + SLAB_SIZE - usable_space;
+}
+
+
 /** Adds a new slab to the free section of a specified cache from physical memory. Initializes metadata for that slab as well. */
 void slab_init(unsigned idx){
     paddr_t phys = pmm_alloc(0);
@@ -112,15 +126,14 @@ void slab_init(unsigned idx){
     }
     slab_t* new_slab = (slab_t*)(phys + get_hhdm_offset()); // convert to virt memory
 
+    new_slab->identifier = IDENTIFIER_CACHE;
     new_slab->cache_idx = idx;
     new_slab->free_head = NULL; //temp for now. fill in later.
     new_slab->num_occupied = 0; // NOT counting metadata
 
     // calculate the LAST address we can fill up the free list to.
     size_t block_size = 16UL << idx;
-    size_t remaining_space = ((SLAB_SIZE - sizeof(slab_t)) / block_size) * block_size; // round this DOWN.
-    uintptr_t first_addr = (uintptr_t)new_slab + 
-                                SLAB_SIZE - remaining_space;
+    uintptr_t first_addr = slab_first_object(new_slab);
     uintptr_t last_addr = (uintptr_t)new_slab + SLAB_SIZE;
     
     for(uintptr_t addr = first_addr; addr < last_addr; addr += block_size){
@@ -164,7 +177,7 @@ static void *kmalloc_large(size_t size){
 
     large_alloc_header_t *header = (large_alloc_header_t*)(phys + get_hhdm_offset());
     header->order = ord;
-    header->identifier = IDENTIFIER;
+    header->identifier = IDENTIFIER_HEADER;
 
     return (uint8_t*)header + LARGE_HEADER_SIZE;
 }
@@ -212,5 +225,113 @@ void *kmalloc(size_t size){
         return head;
     } else{
         return kmalloc_large(size);
+    }
+}
+
+
+static paddr_t hhdm_to_phys(void *virt){
+    return (paddr_t)((uintptr_t)virt - get_hhdm_offset());
+}
+
+
+/** Returns an object to its slab, moving the slab between the cache's empty/partial/full lists as needed.
+ * An emptied slab is kept as the cache's spare if it has none; otherwise its page goes back to the PMM.
+ * @param slab The slab that owns ptr (the page ptr lies in)
+ * @param ptr The object being freed
+ */
+static void kfree_slab(slab_t *slab, void *ptr){
+    if(slab->cache_idx >= CACHE_COUNT){
+        log_error("kfree: corrupt slab header");
+        return;
+    }
+
+    size_t block_size = 16UL << slab->cache_idx;
+    uintptr_t addr = (uintptr_t)ptr;
+    uintptr_t first_addr = slab_first_object(slab);
+    uintptr_t end_addr = (uintptr_t)slab + SLAB_SIZE; // addr is on this page, so it can't be past the end
+
+    if(addr < first_addr || (addr - first_addr) % block_size != 0){
+        log_error("kfree: pointer is not an object of its slab");
+        return;
+    }
+    if(slab->num_occupied == 0){
+        log_error("kfree: slab has no allocated objects (double free)");
+        return;
+    }
+
+    // already on the slab's free list? bounded by the slab's capacity so a corrupted list can't hang us.
+    size_t capacity = (end_addr - first_addr) / block_size;
+    size_t steps = 0;
+    for(slab_node_t *node = slab->free_head; node != NULL && steps < capacity; node = node->next, steps++){
+        if((uintptr_t)node == addr){
+            log_error("kfree: double free detected");
+            return;
+        }
+    }
+
+    cache_t *cache = &cache_list[slab->cache_idx];
+    bool was_full = (slab->free_head == NULL); // a slab is on the full list exactly when it has no free object
+
+    insert_slab_node((slab_node_t *)ptr, &slab->free_head);
+    slab->num_occupied--;
+
+    if(slab->num_occupied == 0){
+        unlink_cache_node(slab, was_full ? &cache->full_head : &cache->partial_head);
+
+        if(cache->empty_head == NULL){
+            insert_cache_node(slab, &cache->empty_head); // keep one spare so alloc/free in a loop doesn't thrash the PMM
+        } else{
+            slab->identifier = 0; // the page is about to be someone else's
+            pmm_free(hhdm_to_phys(slab), 0);
+        }
+    } else if(was_full){
+        unlink_cache_node(slab, &cache->full_head);
+        insert_cache_node(slab, &cache->partial_head);
+    }
+}
+
+
+/** Returns a large allocation's block to the PMM.
+ * @param header The header at the start of the block
+ * @param ptr The pointer the caller passed to kfree
+ */
+static void kfree_large(large_alloc_header_t *header, void *ptr){
+    if((uintptr_t)ptr != (uintptr_t)header + LARGE_HEADER_SIZE){
+        log_error("kfree: pointer is not the start of a large allocation");
+        return;
+    }
+    if(header->order > MAX_ORDER){
+        log_error("kfree: corrupt large allocation header");
+        return;
+    }
+
+    unsigned order = header->order;
+    header->identifier = 0; // so freeing it again is recognized as not-a-heap-pointer
+    pmm_free(hhdm_to_phys(header), order);
+}
+
+
+/** Frees memory from kmalloc. Slab objects and large allocations both start their page with an identifier,
+ * so the page the pointer lies in tells us which kind it is. Pointers that fail validation are logged and ignored.
+ * @param addr The pointer returned by kmalloc. NULL is allowed and does nothing.
+ */
+void kfree(void *addr){
+    if(addr == NULL) return;
+
+    uintptr_t virt = (uintptr_t)addr;
+    if(virt < get_hhdm_offset()){
+        log_error("kfree: pointer is not in the HHDM");
+        return;
+    }
+
+    void *page = (void *)(virt & ~((uintptr_t)SLAB_SIZE - 1));
+    uint32_t identifier = *(uint32_t *)page;
+
+    if(identifier == IDENTIFIER_CACHE){
+        kfree_slab((slab_t *)page, addr);
+    } else if(identifier == IDENTIFIER_HEADER){
+        kfree_large((large_alloc_header_t *)page, addr);
+    } else{
+        log_error("kfree: pointer was not allocated by kmalloc");
     }
 }

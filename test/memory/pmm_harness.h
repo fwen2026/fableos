@@ -95,7 +95,7 @@ static inline paddr_t virt_to_phys(const void *v) {
 /* Fresh arena mapped at fake physical address `base`; empty free lists. */
 static inline void setup(paddr_t base) {
     if (!arena) {
-        arena = malloc(ARENA_SIZE);
+        arena = aligned_alloc(4096, ARENA_SIZE);   /* the real HHDM is page-aligned; heap code masks pointers to pages */
         if (!arena) { printf("out of memory\n"); exit(2); }
     }
     for (size_t i = 0; i < ARENA_SIZE; i++) arena[i] = SENTINEL;
