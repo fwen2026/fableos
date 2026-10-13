@@ -71,6 +71,13 @@ slab_t *pop_cache_node(slab_t **head){
 }
 
 
+/** Adds a new slab to a specified cache from physical memory. Initializes metadata for that slab as well. */
+void slab_init(cache_t *cache){
+    paddr_t phys = pmm_alloc(0);
+    
+}
+
+
 /** Bare-bones init func */
 void heap_init(){
     for(unsigned i = 0; i < CACHE_COUNT; i++){
