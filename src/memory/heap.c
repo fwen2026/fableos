@@ -82,6 +82,26 @@ slab_t *pop_cache_node(slab_t **head){
     return slab;
 }
 
+/** Unlink a generalized node from the free list
+ * @param node the address of the node to remove
+ * @param head the head of the list. necessary for updating if it's the first element.
+*/
+slab_t *unlink_cache_node(slab_t *node, slab_t **head) {
+    if(node->prev){
+        node->prev->next = node->next;
+    } else{
+        if(*head != node) { hcf() ;} // this shouldn't be possible
+        *head = node->next;
+    }
+
+    if(node->next){
+        node->next->prev = node->prev;
+    }
+
+    node->next = NULL;
+    node->prev = NULL;
+}
+
 
 /** Adds a new slab to the free section of a specified cache from physical memory. Initializes metadata for that slab as well. */
 void slab_init(unsigned idx){
