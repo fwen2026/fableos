@@ -234,14 +234,10 @@ static paddr_t hhdm_to_phys(void *virt){
 }
 
 
-/** Returns an object to its slab, moving the slab between the cache's empty/partial/full lists as needed.
- * An emptied slab is kept as the cache's spare if it has none; otherwise its page goes back to the PMM.
- * @param slab The slab that owns ptr (the page ptr lies in)
- * @param ptr The object being freed
- */
+/** Free a small block from the slab allocator. */
 static void kfree_slab(slab_t *slab, void *ptr){
     if(slab->cache_idx >= CACHE_COUNT){
-        log_error("kfree: corrupt slab header");
+        log_error("Index exceeds bounds");
         return;
     }
 
@@ -251,26 +247,25 @@ static void kfree_slab(slab_t *slab, void *ptr){
     uintptr_t end_addr = (uintptr_t)slab + SLAB_SIZE; // addr is on this page, so it can't be past the end
 
     if(addr < first_addr || (addr - first_addr) % block_size != 0){
-        log_error("kfree: pointer is not an object of its slab");
+        log_error("Pointer is not an object of its slab");
         return;
     }
     if(slab->num_occupied == 0){
-        log_error("kfree: slab has no allocated objects (double free)");
+        log_error("Double free detected");
         return;
     }
 
-    // already on the slab's free list? bounded by the slab's capacity so a corrupted list can't hang us.
     size_t capacity = (end_addr - first_addr) / block_size;
     size_t steps = 0;
     for(slab_node_t *node = slab->free_head; node != NULL && steps < capacity; node = node->next, steps++){
         if((uintptr_t)node == addr){
-            log_error("kfree: double free detected");
+            log_error("Double free detected");
             return;
         }
     }
 
     cache_t *cache = &cache_list[slab->cache_idx];
-    bool was_full = (slab->free_head == NULL); // a slab is on the full list exactly when it has no free object
+    bool was_full = (slab->free_head == NULL); // check if its full.
 
     insert_slab_node((slab_node_t *)ptr, &slab->free_head);
     slab->num_occupied--;
@@ -281,7 +276,7 @@ static void kfree_slab(slab_t *slab, void *ptr){
         if(cache->empty_head == NULL){
             insert_cache_node(slab, &cache->empty_head); // keep one spare so alloc/free in a loop doesn't thrash the PMM
         } else{
-            slab->identifier = 0; // the page is about to be someone else's
+            slab->identifier = 0; 
             pmm_free(hhdm_to_phys(slab), 0);
         }
     } else if(was_full){
@@ -291,28 +286,24 @@ static void kfree_slab(slab_t *slab, void *ptr){
 }
 
 
-/** Returns a large allocation's block to the PMM.
- * @param header The header at the start of the block
- * @param ptr The pointer the caller passed to kfree
- */
+/** Free a large block. */
 static void kfree_large(large_alloc_header_t *header, void *ptr){
     if((uintptr_t)ptr != (uintptr_t)header + LARGE_HEADER_SIZE){
-        log_error("kfree: pointer is not the start of a large allocation");
+        log_error("Not a large allocation");
         return;
     }
     if(header->order > MAX_ORDER){
-        log_error("kfree: corrupt large allocation header");
+        log_error("Order exceeds maximum order");
         return;
     }
 
     unsigned order = header->order;
-    header->identifier = 0; // so freeing it again is recognized as not-a-heap-pointer
+    header->identifier = 0; // de-identify. also double free check.
     pmm_free(hhdm_to_phys(header), order);
 }
 
 
-/** Frees memory from kmalloc. Slab objects and large allocations both start their page with an identifier,
- * so the page the pointer lies in tells us which kind it is. Pointers that fail validation are logged and ignored.
+/** Frees memory from kmalloc. Differentiates between large/small allocations.
  * @param addr The pointer returned by kmalloc. NULL is allowed and does nothing.
  */
 void kfree(void *addr){
@@ -320,7 +311,7 @@ void kfree(void *addr){
 
     uintptr_t virt = (uintptr_t)addr;
     if(virt < get_hhdm_offset()){
-        log_error("kfree: pointer is not in the HHDM");
+        log_error("Pointer is not in HHDM");
         return;
     }
 
@@ -332,6 +323,6 @@ void kfree(void *addr){
     } else if(identifier == IDENTIFIER_HEADER){
         kfree_large((large_alloc_header_t *)page, addr);
     } else{
-        log_error("kfree: pointer was not allocated by kmalloc");
+        log_error("Pointer was not allocated");
     }
 }
