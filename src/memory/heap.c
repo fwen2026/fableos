@@ -34,9 +34,12 @@ void insert_slab_node(slab_node_t *node, slab_node_t **head){
     *head = node;
 }
 
-/** Inserts a new node inside the linked list for a specified cache */
+/** Inserts a new node inside the linked list for a specified cache
+ * @param slab The slab to insert
+ * @param head The address for the head of the linked list for the specified cache
+ */
 void insert_cache_node(slab_t *slab, slab_t **head){
-    if(*head != NULL && (*head)->prev != NULL){ return; }
+    if(*head != NULL && (*head)->prev != NULL){ hcf(); }
     if(*head){
         (*head)->prev = slab;
     }
@@ -45,6 +48,26 @@ void insert_cache_node(slab_t *slab, slab_t **head){
     slab->prev = NULL;
 
     *head = slab;
+}
+
+
+/** Pops a node from the linked list for a specified cache
+ * @param head The address for the head of the list.
+ * @return The popped slab, or NULL if the list is empty.
+ */
+slab_t *pop_cache_node(slab_t **head){
+    slab_t *slab = *head;
+    if(slab == NULL){ return NULL; }
+
+    *head = slab->next;
+    if(*head != NULL){
+        (*head)->prev = NULL;
+    }
+
+    slab->next = NULL;
+    slab->prev = NULL; // isolate it.
+
+    return slab;
 }
 
 
