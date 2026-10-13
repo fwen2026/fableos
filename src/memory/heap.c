@@ -5,6 +5,9 @@
 
 #define CACHE_COUNT 8 // from 16 bytes to 2048 bytes: half a page.
 #define SLAB_SIZE 4096 // 4096 bytes
+#define LARGE_HEADER_SIZE 16
+#define IDENTIFIER 0xDEADBEEF
+#define MAX_ORDER 9
 
 typedef struct slab_node{
     struct slab_node *next;
@@ -27,6 +30,12 @@ typedef struct {
 } cache_t;
 
 static cache_t cache_list[CACHE_COUNT];
+
+
+typedef struct {
+    uint32_t order;
+    uint32_t identifier;
+} large_alloc_header_t;
 
 
 /** Inserts a new node inside the free list for each slab. */
@@ -150,5 +159,31 @@ void *kmalloc(size_t size){
         } 
 
         return head;
+    } else{
+        return kmalloc_large(size);
     }
+}
+
+
+/** Because the slabs can't support sizes past 2048 bytes, we need a different approach. */
+static void *kmalloc_large(size_t size){
+    size_t size_and_metadata = size + LARGE_HEADER_SIZE;
+    size_t num_pages = div_ceil(size_and_metadata, SLAB_SIZE);
+
+    unsigned ord = (num_pages <= 1)
+        ? 0
+        : 64 - __builtin_clzll(num_pages - 1);
+
+    if(ord > MAX_ORDER){
+        return NULL;
+    }
+
+    paddr_t phys = pmm_alloc(ord);
+    if(phys == 0) return NULL;
+
+    large_alloc_header_t *header = (large_alloc_header_t*)(phys + get_hhdm_offset());
+    header->order = ord;
+    header->identifier = IDENTIFIER;
+
+    return (uint8_t*)header + LARGE_HEADER_SIZE;
 }
