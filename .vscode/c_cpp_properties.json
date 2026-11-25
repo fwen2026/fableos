@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "FableOS",
+            "compilerPath": "/opt/homebrew/bin/x86_64-elf-gcc",
+            "intelliSenseMode": "linux-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "cStandard": "c17",
+            "compilerArgs": [
+                "-ffreestanding"
+            ]
+        }
+    ],
+    "version": 4
+}
