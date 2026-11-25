@@ -30,6 +30,7 @@ void memory_init(void){
 
     heap_init();
     log_info("Heap initialized");
+    kmalloc(100); // quick smoke test
 }
 
 void kmain(void){
